@@ -1,13 +1,17 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, Box, Lock, BarChart2, FileText, Radio, Folder } from 'lucide-react';
+import { LayoutDashboard, Users, Box, Lock, BarChart2, FileText, Radio, Folder, LogOut } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 import './DashboardLayout.css';
 
 const DashboardLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user, logout } = useAuth();
 
-  const userStr = localStorage.getItem('user');
-  const user = userStr ? JSON.parse(userStr) : null;
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
 
   let menus = [];
 
@@ -58,6 +62,10 @@ const DashboardLayout = () => {
         <div className="sidebar-footer">
           <div className="footer-label">Login sebagai</div>
           <div className="footer-role">{user?.is_super_admin ? 'SUPER ADMIN' : 'ADMIN'}</div>
+          <button className="nav-item logout-btn" onClick={handleLogout}>
+            <LogOut size={18} />
+            <span>Keluar</span>
+          </button>
         </div>
       </aside>
 

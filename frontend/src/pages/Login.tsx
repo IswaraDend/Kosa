@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import { Mail, Lock, Eye, Radio, Server, Warehouse, ArrowRightLeft, ArrowRight } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 import './Login.css';
 
 const Login = () => {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -16,7 +18,7 @@ const Login = () => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg('');
-    
+
     try {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
       const response = await fetch(`${apiUrl}/login`, {
@@ -28,10 +30,8 @@ const Login = () => {
       const data = await response.json();
 
       if (response.ok) {
-        // Simpan token dan data user
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        
+        login(data.token, data.user);
+
         // Routing berdasarkan RBAC baru
         if (data.user.is_super_admin) {
           navigate('/super-admin');
@@ -42,7 +42,7 @@ const Login = () => {
       } else {
         setErrorMsg(data.error || 'Login gagal');
       }
-    } catch (err) {
+    } catch {
       setErrorMsg('Gagal terhubung ke server backend');
     } finally {
       setLoading(false);
@@ -133,8 +133,8 @@ const Login = () => {
               Ingat saya di perangkat ini
             </label>
 
-            <button type="submit" className="btn-primary" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              Masuk <ArrowRight size={16} style={{ marginLeft: 8 }} />
+            <button type="submit" className="btn-primary" disabled={loading} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              {loading ? 'Memproses...' : 'Masuk'} <ArrowRight size={16} style={{ marginLeft: 8 }} />
             </button>
           </form>
 
@@ -143,8 +143,8 @@ const Login = () => {
           <div className="sso-btn-wrapper">
             <GoogleLogin
               onSuccess={credentialResponse => {
+                // TODO: kirim credentialResponse.credential ke backend untuk verifikasi & dapatkan JWT asli
                 console.log(credentialResponse);
-                navigate('/super-admin'); 
               }}
               onError={() => {
                 console.log('Login Failed');

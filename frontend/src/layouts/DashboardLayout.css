@@ -90,6 +90,18 @@
   color: #f39c12;
 }
 
+.logout-btn {
+  margin-top: 12px;
+  padding: 8px 0;
+  color: var(--danger);
+}
+
+.logout-btn:hover {
+  background: transparent;
+  color: var(--danger);
+  opacity: 0.8;
+}
+
 /* Main Content */
 .main-content {
   flex: 1;

@@ -36,6 +36,11 @@ func Connect() {
 		&models.UserRole{},
 		&models.Permission{},
 		&models.MemberPermission{},
+		&models.Warehouse{},
+		&models.Item{},
+		&models.Stock{},
+		&models.Transaction{},
+		&models.TransactionItem{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed:", err)

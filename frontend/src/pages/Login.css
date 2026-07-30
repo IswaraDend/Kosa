@@ -107,11 +107,11 @@
   font-size: 14px;
 }
 
-.form-group {
+.login-box .form-group {
   margin-bottom: 20px;
 }
 
-.form-group label {
+.login-box .form-group label {
   display: flex;
   justify-content: space-between;
   margin-bottom: 8px;
@@ -119,7 +119,7 @@
   color: var(--text-secondary);
 }
 
-.form-group label a {
+.login-box .form-group label a {
   color: var(--text-muted);
   font-size: 12px;
 }
@@ -145,8 +145,35 @@
   cursor: pointer;
 }
 
-.input-wrapper input {
-  padding-left: 42px;
+.input-field {
+  width: 100%;
+  padding: 12px 14px 12px 42px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input-field::placeholder {
+  color: var(--text-muted);
+}
+
+.input-field:focus {
+  border-color: var(--brand-primary);
+}
+
+.login-box .btn-primary {
+  width: 100%;
+  border: none;
+}
+
+.login-box .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .remember-me {
