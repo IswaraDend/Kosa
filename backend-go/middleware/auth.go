@@ -14,6 +14,8 @@ type Claims struct {
 	ID           uint   `json:"id"`
 	Email        string `json:"email"`
 	IsSuperAdmin bool   `json:"is_super_admin"`
+	IsAdmin      bool   `json:"is_admin"`
+	IsMember     bool   `json:"is_member"`
 	jwt.RegisteredClaims
 }
 

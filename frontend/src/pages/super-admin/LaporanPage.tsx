@@ -8,25 +8,43 @@ import TableCard from '../../components/TableCard';
 import ProjectPicker from '../../components/ProjectPicker';
 import '../Dashboard.css';
 
-const LaporanPage = () => {
+interface LaporanPageProps {
+  apiBasePrefix?: string;
+  scopeMode?: 'query' | 'path';
+  projectEndpoint?: string;
+  includeAllOption?: boolean;
+}
+
+const LaporanPage = ({
+  apiBasePrefix = '/super-admin',
+  scopeMode = 'query',
+  projectEndpoint = '/super-admin/projects',
+  includeAllOption = true,
+}: LaporanPageProps) => {
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
   const [stockRows, setStockRows] = useState<StockSummaryRow[]>([]);
   const [movement, setMovement] = useState<TransactionReportRow[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
 
+  const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
+
   useEffect(() => {
-    const query = buildQuery({ project_id: selectedProjectId === 'all' ? undefined : selectedProjectId });
+    if (scopeMode === 'path' && selectedProjectId === 'all') return;
+
+    const query =
+      scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId === 'all' ? undefined : selectedProjectId }) : '';
 
     api
-      .get<{ data: StockSummaryRow[] }>(`/super-admin/reports/stock-summary${query}`)
+      .get<{ data: StockSummaryRow[] }>(`${resourceBase}/reports/stock-summary${query}`)
       .then((res) => setStockRows(res.data))
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat laporan stok'));
 
     api
-      .get<{ data: TransactionReportRow[] }>(`/super-admin/reports/transactions${query}`)
+      .get<{ data: TransactionReportRow[] }>(`${resourceBase}/reports/transactions${query}`)
       .then((res) => setMovement(res.data))
       .catch(() => setMovement([]));
-  }, [selectedProjectId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjectId, apiBasePrefix, scopeMode]);
 
   const chartData = Object.values(
     movement.reduce<Record<string, { period: string; masuk: number; keluar: number }>>((acc, row) => {
@@ -43,7 +61,12 @@ const LaporanPage = () => {
 
       <div className="form-group" style={{ maxWidth: 280 }}>
         <label>Project</label>
-        <ProjectPicker value={selectedProjectId} onChange={setSelectedProjectId} includeAllOption />
+        <ProjectPicker
+          value={selectedProjectId}
+          onChange={setSelectedProjectId}
+          includeAllOption={includeAllOption}
+          endpoint={projectEndpoint}
+        />
       </div>
 
       {errorMsg && (

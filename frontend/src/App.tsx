@@ -2,15 +2,35 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import Login from './pages/Login';
 import DashboardLayout from './layouts/DashboardLayout';
 import RequireAuth from './components/RequireAuth';
-import AdminDashboard from './pages/AdminDashboard';
-import MemberDashboard from './pages/MemberDashboard';
+import { useAuth } from './hooks/useAuth';
 import RingkasanPage from './pages/super-admin/RingkasanPage';
 import KelolaProjectPage from './pages/super-admin/KelolaProjectPage';
 import UsersPage from './pages/super-admin/UsersPage';
 import GudangPage from './pages/super-admin/GudangPage';
+import ItemPage from './pages/super-admin/ItemPage';
 import PermissionPage from './pages/super-admin/PermissionPage';
 import TransaksiPage from './pages/super-admin/TransaksiPage';
 import LaporanPage from './pages/super-admin/LaporanPage';
+import AdminRingkasanPage from './pages/admin/RingkasanPage';
+import AdminMembersPage from './pages/admin/MembersPage';
+import AdminPermissionPage from './pages/admin/PermissionPage';
+import AdminGudangPage from './pages/admin/GudangPage';
+import AdminItemPage from './pages/admin/ItemPage';
+import AdminTransaksiPage from './pages/admin/TransaksiPage';
+import AdminLaporanPage from './pages/admin/LaporanPage';
+import MemberRingkasanPage from './pages/member/RingkasanPage';
+import MemberGudangPage from './pages/member/GudangPage';
+import MemberTransaksiPage from './pages/member/TransaksiPage';
+import MemberLaporanPage from './pages/member/LaporanPage';
+
+const HomeRedirect = () => {
+  const { isAuthenticated, isSuperAdmin, isAdmin, isMember } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (isSuperAdmin) return <Navigate to="/super-admin" replace />;
+  if (isAdmin) return <Navigate to="/admin" replace />;
+  if (isMember) return <Navigate to="/member" replace />;
+  return <Navigate to="/login" replace />;
+};
 
 function App() {
   return (
@@ -29,7 +49,7 @@ function App() {
           <Route
             path="super-admin"
             element={
-              <RequireAuth requireSuperAdmin>
+              <RequireAuth requireRole="super-admin">
                 <Outlet />
               </RequireAuth>
             }
@@ -38,14 +58,44 @@ function App() {
             <Route path="ringkasan" element={<RingkasanPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="gudang" element={<GudangPage />} />
+            <Route path="item" element={<ItemPage />} />
             <Route path="permission" element={<PermissionPage />} />
             <Route path="transaksi" element={<TransaksiPage />} />
             <Route path="laporan" element={<LaporanPage />} />
           </Route>
 
-          <Route path="admin/*" element={<AdminDashboard />} />
-          <Route path="member/*" element={<MemberDashboard />} />
-          <Route index element={<Navigate to="/login" replace />} />
+          <Route
+            path="admin"
+            element={
+              <RequireAuth requireRole="admin">
+                <Outlet />
+              </RequireAuth>
+            }
+          >
+            <Route index element={<AdminRingkasanPage />} />
+            <Route path="members" element={<AdminMembersPage />} />
+            <Route path="permission" element={<AdminPermissionPage />} />
+            <Route path="gudang" element={<AdminGudangPage />} />
+            <Route path="item" element={<AdminItemPage />} />
+            <Route path="transaksi" element={<AdminTransaksiPage />} />
+            <Route path="laporan" element={<AdminLaporanPage />} />
+          </Route>
+
+          <Route
+            path="member"
+            element={
+              <RequireAuth requireRole="member">
+                <Outlet />
+              </RequireAuth>
+            }
+          >
+            <Route index element={<MemberRingkasanPage />} />
+            <Route path="gudang" element={<MemberGudangPage />} />
+            <Route path="transaksi" element={<MemberTransaksiPage />} />
+            <Route path="laporan" element={<MemberLaporanPage />} />
+          </Route>
+
+          <Route index element={<HomeRedirect />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/login" replace />} />

@@ -12,6 +12,181 @@ import (
 	"gorm.io/gorm"
 )
 
+type TransactionItemRequest struct {
+	ItemID   uint    `json:"item_id" binding:"required"`
+	Quantity float64 `json:"quantity" binding:"required,gt=0"`
+}
+
+type CreateTransactionRequest struct {
+	ProjectID         uint                     `json:"project_id" binding:"required"`
+	Type              models.TransactionType   `json:"type" binding:"required,oneof=in out transfer"`
+	SourceWarehouseID *uint                    `json:"source_warehouse_id"`
+	DestWarehouseID   *uint                    `json:"dest_warehouse_id"`
+	Note              string                   `json:"note"`
+	Items             []TransactionItemRequest `json:"items" binding:"required,min=1,dive"`
+}
+
+// CreateTransactionFields is the same shape as CreateTransactionRequest but
+// without ProjectID — used by Admin/Member routes where the project comes
+// from the trusted context value, never from the request body.
+type CreateTransactionFields struct {
+	Type              models.TransactionType   `json:"type" binding:"required,oneof=in out transfer"`
+	SourceWarehouseID *uint                    `json:"source_warehouse_id"`
+	DestWarehouseID   *uint                    `json:"dest_warehouse_id"`
+	Note              string                   `json:"note"`
+	Items             []TransactionItemRequest `json:"items" binding:"required,min=1,dive"`
+}
+
+func listTransactionsByProject(projectID uint, warehouseID *uint, txType, from, to string) ([]models.Transaction, error) {
+	query := database.DB.Model(&models.Transaction{}).Preload("Items.Item").
+		Preload("SourceWarehouse").Preload("DestWarehouse").
+		Where("project_id = ?", projectID)
+
+	if warehouseID != nil {
+		query = query.Where("source_warehouse_id = ? OR dest_warehouse_id = ?", *warehouseID, *warehouseID)
+	}
+	if txType != "" {
+		query = query.Where("type = ?", txType)
+	}
+	if from != "" {
+		query = query.Where("created_at >= ?", from)
+	}
+	if to != "" {
+		query = query.Where("created_at <= ?", to)
+	}
+
+	var transactions []models.Transaction
+	err := query.Order("created_at desc").Find(&transactions).Error
+	return transactions, err
+}
+
+func getTransactionScoped(id, projectID uint) (models.Transaction, error) {
+	var transaction models.Transaction
+	err := database.DB.Preload("Items.Item").Preload("SourceWarehouse").Preload("DestWarehouse").
+		Where("id = ? AND project_id = ?", id, projectID).First(&transaction).Error
+	return transaction, err
+}
+
+func validateTransactionShape(t models.TransactionType, source, dest *uint) (*uint, *uint, error) {
+	switch t {
+	case models.TransactionIn:
+		if dest == nil {
+			return nil, nil, fmt.Errorf("dest_warehouse_id wajib diisi untuk transaksi masuk")
+		}
+		return nil, dest, nil
+	case models.TransactionOut:
+		if source == nil {
+			return nil, nil, fmt.Errorf("source_warehouse_id wajib diisi untuk transaksi keluar")
+		}
+		return source, nil, nil
+	case models.TransactionTransfer:
+		if source == nil || dest == nil {
+			return nil, nil, fmt.Errorf("source_warehouse_id dan dest_warehouse_id wajib diisi untuk transfer")
+		}
+		if *source == *dest {
+			return nil, nil, fmt.Errorf("Gudang asal dan tujuan tidak boleh sama")
+		}
+		return source, dest, nil
+	}
+	return source, dest, nil
+}
+
+// createTransactionCore is the trusted entry point: projectID always comes
+// from the caller (either the request body on Super Admin routes, or the
+// middleware-validated path param on Admin/Member routes) — never re-derived
+// from anything inside req.
+func createTransactionCore(projectID, callerID uint, txType models.TransactionType, source, dest *uint, note string, items []TransactionItemRequest) (models.Transaction, error) {
+	source, dest, err := validateTransactionShape(txType, source, dest)
+	if err != nil {
+		return models.Transaction{}, err
+	}
+
+	var transaction models.Transaction
+
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if source != nil {
+			for _, line := range items {
+				var stock models.Stock
+				err := tx.Where("warehouse_id = ? AND item_id = ?", *source, line.ItemID).
+					First(&stock).Error
+				if err == gorm.ErrRecordNotFound || (err == nil && stock.Quantity < line.Quantity) {
+					return fmt.Errorf("stok tidak cukup untuk item ID %d", line.ItemID)
+				}
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		transaction = models.Transaction{
+			ProjectID:         projectID,
+			Type:              txType,
+			SourceWarehouseID: source,
+			DestWarehouseID:   dest,
+			Note:              note,
+			PerformedByID:     callerID,
+			CreatedAt:         time.Now(),
+		}
+		if err := tx.Create(&transaction).Error; err != nil {
+			return err
+		}
+
+		for _, line := range items {
+			txItem := models.TransactionItem{
+				TransactionID: transaction.ID,
+				ItemID:        line.ItemID,
+				Quantity:      line.Quantity,
+			}
+			if err := tx.Create(&txItem).Error; err != nil {
+				return err
+			}
+
+			if source != nil {
+				if err := adjustStock(tx, projectID, *source, line.ItemID, -line.Quantity); err != nil {
+					return err
+				}
+			}
+			if dest != nil {
+				if err := adjustStock(tx, projectID, *dest, line.ItemID, line.Quantity); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return models.Transaction{}, err
+	}
+
+	database.DB.Preload("Items.Item").First(&transaction, transaction.ID)
+	return transaction, nil
+}
+
+func adjustStock(tx *gorm.DB, projectID, warehouseID, itemID uint, delta float64) error {
+	var stock models.Stock
+	err := tx.Where("warehouse_id = ? AND item_id = ?", warehouseID, itemID).First(&stock).Error
+
+	if err == gorm.ErrRecordNotFound {
+		stock = models.Stock{ProjectID: projectID, WarehouseID: warehouseID, ItemID: itemID, Quantity: 0}
+		if err := tx.Create(&stock).Error; err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+
+	stock.Quantity += delta
+	if stock.Quantity < 0 {
+		return fmt.Errorf("stok tidak cukup untuk item ID %d di gudang ID %d", itemID, warehouseID)
+	}
+
+	return tx.Save(&stock).Error
+}
+
+// ---- Super Admin routes (global, project_id optional via query / trusted in body) ----
+
 func ListTransactions(c *gin.Context) {
 	query := database.DB.Model(&models.Transaction{}).Preload("Items.Item").
 		Preload("SourceWarehouse").Preload("DestWarehouse")
@@ -58,20 +233,6 @@ func GetTransaction(c *gin.Context) {
 	c.JSON(http.StatusOK, transaction)
 }
 
-type TransactionItemRequest struct {
-	ItemID   uint    `json:"item_id" binding:"required"`
-	Quantity float64 `json:"quantity" binding:"required,gt=0"`
-}
-
-type CreateTransactionRequest struct {
-	ProjectID         uint                      `json:"project_id" binding:"required"`
-	Type              models.TransactionType    `json:"type" binding:"required,oneof=in out transfer"`
-	SourceWarehouseID *uint                     `json:"source_warehouse_id"`
-	DestWarehouseID   *uint                     `json:"dest_warehouse_id"`
-	Note              string                    `json:"note"`
-	Items             []TransactionItemRequest  `json:"items" binding:"required,min=1,dive"`
-}
-
 func CreateTransaction(c *gin.Context) {
 	var req CreateTransactionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -79,112 +240,55 @@ func CreateTransaction(c *gin.Context) {
 		return
 	}
 
-	switch req.Type {
-	case models.TransactionIn:
-		if req.DestWarehouseID == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "dest_warehouse_id wajib diisi untuk transaksi masuk"})
-			return
-		}
-		req.SourceWarehouseID = nil
-	case models.TransactionOut:
-		if req.SourceWarehouseID == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "source_warehouse_id wajib diisi untuk transaksi keluar"})
-			return
-		}
-		req.DestWarehouseID = nil
-	case models.TransactionTransfer:
-		if req.SourceWarehouseID == nil || req.DestWarehouseID == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "source_warehouse_id dan dest_warehouse_id wajib diisi untuk transfer"})
-			return
-		}
-		if *req.SourceWarehouseID == *req.DestWarehouseID {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Gudang asal dan tujuan tidak boleh sama"})
-			return
-		}
-	}
-
-	callerID := currentUserID(c)
-	var transaction models.Transaction
-
-	err := database.DB.Transaction(func(tx *gorm.DB) error {
-		if req.SourceWarehouseID != nil {
-			for _, line := range req.Items {
-				var stock models.Stock
-				err := tx.Where("warehouse_id = ? AND item_id = ?", *req.SourceWarehouseID, line.ItemID).
-					First(&stock).Error
-				if err == gorm.ErrRecordNotFound || (err == nil && stock.Quantity < line.Quantity) {
-					return fmt.Errorf("stok tidak cukup untuk item ID %d", line.ItemID)
-				}
-				if err != nil {
-					return err
-				}
-			}
-		}
-
-		transaction = models.Transaction{
-			ProjectID:         req.ProjectID,
-			Type:              req.Type,
-			SourceWarehouseID: req.SourceWarehouseID,
-			DestWarehouseID:   req.DestWarehouseID,
-			Note:              req.Note,
-			PerformedByID:     callerID,
-			CreatedAt:         time.Now(),
-		}
-		if err := tx.Create(&transaction).Error; err != nil {
-			return err
-		}
-
-		for _, line := range req.Items {
-			txItem := models.TransactionItem{
-				TransactionID: transaction.ID,
-				ItemID:        line.ItemID,
-				Quantity:      line.Quantity,
-			}
-			if err := tx.Create(&txItem).Error; err != nil {
-				return err
-			}
-
-			if req.SourceWarehouseID != nil {
-				if err := adjustStock(tx, req.ProjectID, *req.SourceWarehouseID, line.ItemID, -line.Quantity); err != nil {
-					return err
-				}
-			}
-			if req.DestWarehouseID != nil {
-				if err := adjustStock(tx, req.ProjectID, *req.DestWarehouseID, line.ItemID, line.Quantity); err != nil {
-					return err
-				}
-			}
-		}
-
-		return nil
-	})
-
+	transaction, err := createTransactionCore(req.ProjectID, currentUserID(c), req.Type, req.SourceWarehouseID, req.DestWarehouseID, req.Note, req.Items)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 		return
 	}
 
-	database.DB.Preload("Items.Item").First(&transaction, transaction.ID)
 	c.JSON(http.StatusCreated, transaction)
 }
 
-func adjustStock(tx *gorm.DB, projectID, warehouseID, itemID uint, delta float64) error {
-	var stock models.Stock
-	err := tx.Where("warehouse_id = ? AND item_id = ?", warehouseID, itemID).First(&stock).Error
+// ---- Admin/Member routes (project trusted from context, set by middleware) ----
 
-	if err == gorm.ErrRecordNotFound {
-		stock = models.Stock{ProjectID: projectID, WarehouseID: warehouseID, ItemID: itemID, Quantity: 0}
-		if err := tx.Create(&stock).Error; err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
+func ListTransactionsForProject(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	transactions, err := listTransactionsByProject(projectID, queryUintPtr(c, "warehouse_id"), c.Query("type"), c.Query("from"), c.Query("to"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data transaksi"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": transactions, "total": len(transactions)})
+}
+
+func GetTransactionForProject(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	id, ok := paramID(c)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID tidak valid"})
+		return
+	}
+	transaction, err := getTransactionScoped(id, projectID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Transaksi tidak ditemukan"})
+		return
+	}
+	c.JSON(http.StatusOK, transaction)
+}
+
+func CreateTransactionForProject(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	var req CreateTransactionFields
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Data transaksi tidak lengkap atau tidak valid: " + err.Error()})
+		return
 	}
 
-	stock.Quantity += delta
-	if stock.Quantity < 0 {
-		return fmt.Errorf("stok tidak cukup untuk item ID %d di gudang ID %d", itemID, warehouseID)
+	transaction, err := createTransactionCore(projectID, currentUserID(c), req.Type, req.SourceWarehouseID, req.DestWarehouseID, req.Note, req.Items)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
 	}
 
-	return tx.Save(&stock).Error
+	c.JSON(http.StatusCreated, transaction)
 }

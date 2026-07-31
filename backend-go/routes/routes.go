@@ -76,4 +76,71 @@ func RegisterRoutes(r *gin.Engine) {
 		superAdmin.GET("/reports/stock-summary", handlers.StockSummaryReport)
 		superAdmin.GET("/reports/transactions", handlers.TransactionReport)
 	}
+
+	admin := r.Group("/admin")
+	admin.Use(middleware.AuthMiddleware())
+	{
+		admin.GET("/projects", handlers.ListMyProjectsAsAdmin)
+		admin.GET("/permissions", handlers.ListPermissions)
+
+		adminProject := admin.Group("/projects/:projectId")
+		adminProject.Use(middleware.RequireProjectRole("admin"))
+		{
+			adminProject.GET("", handlers.GetMyProject)
+			adminProject.GET("/summary", handlers.GetProjectSummaryForProject)
+
+			adminProject.GET("/members", handlers.ListProjectMembers)
+			adminProject.POST("/members", handlers.AddProjectMember)
+			adminProject.DELETE("/members/:userRoleId", handlers.RemoveProjectMember)
+
+			adminProject.GET("/user-roles/:userRoleId/permissions", handlers.ListGrantedPermissionsScoped)
+			adminProject.POST("/user-roles/:userRoleId/permissions", handlers.GrantPermissionScoped)
+			adminProject.DELETE("/user-roles/:userRoleId/permissions/:permissionId", handlers.RevokePermissionScoped)
+
+			adminProject.GET("/warehouses", handlers.ListWarehousesForProject)
+			adminProject.POST("/warehouses", handlers.CreateWarehouseForProject)
+			adminProject.GET("/warehouses/:id", handlers.GetWarehouseForProject)
+			adminProject.PUT("/warehouses/:id", handlers.UpdateWarehouseForProject)
+			adminProject.DELETE("/warehouses/:id", handlers.DeleteWarehouseForProject)
+
+			adminProject.GET("/items", handlers.ListItemsForProject)
+			adminProject.POST("/items", handlers.CreateItemForProject)
+			adminProject.GET("/items/:id", handlers.GetItemForProject)
+			adminProject.PUT("/items/:id", handlers.UpdateItemForProject)
+			adminProject.DELETE("/items/:id", handlers.DeleteItemForProject)
+			adminProject.GET("/items/:id/stock", handlers.GetItemStockForProject)
+
+			adminProject.GET("/transactions", handlers.ListTransactionsForProject)
+			adminProject.POST("/transactions", handlers.CreateTransactionForProject)
+			adminProject.GET("/transactions/:id", handlers.GetTransactionForProject)
+
+			adminProject.GET("/reports/stock-summary", handlers.StockSummaryReportForProject)
+			adminProject.GET("/reports/transactions", handlers.TransactionReportForProject)
+		}
+	}
+
+	member := r.Group("/member")
+	member.Use(middleware.AuthMiddleware())
+	{
+		member.GET("/projects", handlers.ListMyProjectsAsMember)
+
+		memberProject := member.Group("/projects/:projectId")
+		{
+			memberProject.GET("", middleware.RequireProjectRole("member"), handlers.GetMyProject)
+			memberProject.GET("/my-permissions", middleware.RequireProjectRole("member"), handlers.GetMyPermissions)
+
+			memberProject.GET("/warehouses", middleware.RequirePermission("warehouse.view"), handlers.ListWarehousesForProject)
+			memberProject.GET("/warehouses/:id", middleware.RequirePermission("warehouse.view"), handlers.GetWarehouseForProject)
+
+			memberProject.GET("/items", middleware.RequirePermission("item.view"), handlers.ListItemsForProject)
+			memberProject.GET("/items/:id/stock", middleware.RequirePermission("item.view"), handlers.GetItemStockForProject)
+
+			memberProject.GET("/transactions", middleware.RequirePermission("transaction.view"), handlers.ListTransactionsForProject)
+			memberProject.GET("/transactions/:id", middleware.RequirePermission("transaction.view"), handlers.GetTransactionForProject)
+			memberProject.POST("/transactions", middleware.RequirePermission("transaction.create"), handlers.CreateTransactionForProject)
+
+			memberProject.GET("/reports/stock-summary", middleware.RequirePermission("report.view"), handlers.StockSummaryReportForProject)
+			memberProject.GET("/reports/transactions", middleware.RequirePermission("report.view"), handlers.TransactionReportForProject)
+		}
+	}
 }

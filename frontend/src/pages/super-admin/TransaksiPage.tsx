@@ -32,7 +32,21 @@ const emptyForm: TxFormState = {
   note: '',
 };
 
-const TransaksiPage = () => {
+interface TransaksiPageProps {
+  apiBasePrefix?: string;
+  scopeMode?: 'query' | 'path';
+  projectEndpoint?: string;
+  includeAllOption?: boolean;
+  canCreate?: boolean;
+}
+
+const TransaksiPage = ({
+  apiBasePrefix = '/super-admin',
+  scopeMode = 'query',
+  projectEndpoint = '/super-admin/projects',
+  includeAllOption = true,
+  canCreate = true,
+}: TransaksiPageProps) => {
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -45,6 +59,8 @@ const TransaksiPage = () => {
   const [form, setForm] = useState<TxFormState>(emptyForm);
   const [saving, setSaving] = useState(false);
 
+  const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
+
   const loadTransactions = () => {
     if (selectedProjectId === 'all') {
       setTransactions([]);
@@ -52,13 +68,12 @@ const TransaksiPage = () => {
       return;
     }
     setLoading(true);
+    const query =
+      scopeMode === 'query'
+        ? buildQuery({ project_id: selectedProjectId, type: typeFilter === 'all' ? undefined : typeFilter })
+        : buildQuery({ type: typeFilter === 'all' ? undefined : typeFilter });
     api
-      .get<{ data: TransactionRecord[] }>(
-        `/super-admin/transactions${buildQuery({
-          project_id: selectedProjectId,
-          type: typeFilter === 'all' ? undefined : typeFilter,
-        })}`,
-      )
+      .get<{ data: TransactionRecord[] }>(`${resourceBase}/transactions${query}`)
       .then((res) => setTransactions(res.data))
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat transaksi'))
       .finally(() => setLoading(false));
@@ -67,23 +82,25 @@ const TransaksiPage = () => {
   useEffect(() => {
     loadTransactions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, typeFilter]);
+  }, [selectedProjectId, typeFilter, apiBasePrefix, scopeMode]);
 
   useEffect(() => {
-    if (selectedProjectId === 'all') {
+    if (selectedProjectId === 'all' || !canCreate) {
       setWarehouses([]);
       setItems([]);
       return;
     }
+    const query = scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId }) : '';
     api
-      .get<{ data: Warehouse[] }>(`/super-admin/warehouses${buildQuery({ project_id: selectedProjectId })}`)
+      .get<{ data: Warehouse[] }>(`${resourceBase}/warehouses${query}`)
       .then((res) => setWarehouses(res.data))
       .catch(() => setWarehouses([]));
     api
-      .get<{ data: Item[] }>(`/super-admin/items${buildQuery({ project_id: selectedProjectId })}`)
+      .get<{ data: Item[] }>(`${resourceBase}/items${query}`)
       .then((res) => setItems(res.data))
       .catch(() => setItems([]));
-  }, [selectedProjectId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjectId, apiBasePrefix, scopeMode, canCreate]);
 
   const openCreateForm = () => {
     setForm(emptyForm);
@@ -94,7 +111,7 @@ const TransaksiPage = () => {
     setSaving(true);
     setErrorMsg('');
     try {
-      await api.post('/super-admin/transactions', {
+      await api.post(`${resourceBase}/transactions`, {
         project_id: Number(selectedProjectId),
         type: form.type,
         source_warehouse_id: form.source_warehouse_id ? Number(form.source_warehouse_id) : undefined,
@@ -121,16 +138,23 @@ const TransaksiPage = () => {
         title="Transaksi"
         subtitle="Riwayat pergerakan stok masuk, keluar, dan transfer antar gudang"
         actions={
-          <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
-            <Plus size={18} />
-            Tambah Transaksi
-          </button>
+          canCreate ? (
+            <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
+              <Plus size={18} />
+              Tambah Transaksi
+            </button>
+          ) : undefined
         }
       />
 
       <div className="form-group" style={{ maxWidth: 280 }}>
         <label>Project</label>
-        <ProjectPicker value={selectedProjectId} onChange={setSelectedProjectId} includeAllOption />
+        <ProjectPicker
+          value={selectedProjectId}
+          onChange={setSelectedProjectId}
+          includeAllOption={includeAllOption}
+          endpoint={projectEndpoint}
+        />
       </div>
 
       {errorMsg && (
@@ -193,102 +217,104 @@ const TransaksiPage = () => {
         </>
       )}
 
-      <Modal
-        isOpen={formOpen}
-        onClose={() => setFormOpen(false)}
-        title="Tambah Transaksi"
-        footer={
-          <>
-            <button className="btn-secondary" onClick={() => setFormOpen(false)}>
-              Batal
-            </button>
-            <button className="btn-primary" onClick={handleSubmit} disabled={saving}>
-              {saving ? 'Menyimpan...' : 'Simpan'}
-            </button>
-          </>
-        }
-      >
-        <div className="form-group">
-          <label>Tipe Transaksi</label>
-          <select
-            className="form-select"
-            value={form.type}
-            onChange={(e) => setForm({ ...form, type: e.target.value as TransactionType })}
-          >
-            <option value="in">Masuk</option>
-            <option value="out">Keluar</option>
-            <option value="transfer">Transfer</option>
-          </select>
-        </div>
-
-        {(form.type === 'out' || form.type === 'transfer') && (
+      {canCreate && (
+        <Modal
+          isOpen={formOpen}
+          onClose={() => setFormOpen(false)}
+          title="Tambah Transaksi"
+          footer={
+            <>
+              <button className="btn-secondary" onClick={() => setFormOpen(false)}>
+                Batal
+              </button>
+              <button className="btn-primary" onClick={handleSubmit} disabled={saving}>
+                {saving ? 'Menyimpan...' : 'Simpan'}
+              </button>
+            </>
+          }
+        >
           <div className="form-group">
-            <label>Gudang Asal</label>
+            <label>Tipe Transaksi</label>
             <select
               className="form-select"
-              value={form.source_warehouse_id}
-              onChange={(e) => setForm({ ...form, source_warehouse_id: e.target.value })}
+              value={form.type}
+              onChange={(e) => setForm({ ...form, type: e.target.value as TransactionType })}
             >
-              <option value="">Pilih gudang</option>
-              {warehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
+              <option value="in">Masuk</option>
+              <option value="out">Keluar</option>
+              <option value="transfer">Transfer</option>
+            </select>
+          </div>
+
+          {(form.type === 'out' || form.type === 'transfer') && (
+            <div className="form-group">
+              <label>Gudang Asal</label>
+              <select
+                className="form-select"
+                value={form.source_warehouse_id}
+                onChange={(e) => setForm({ ...form, source_warehouse_id: e.target.value })}
+              >
+                <option value="">Pilih gudang</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {(form.type === 'in' || form.type === 'transfer') && (
+            <div className="form-group">
+              <label>Gudang Tujuan</label>
+              <select
+                className="form-select"
+                value={form.dest_warehouse_id}
+                onChange={(e) => setForm({ ...form, dest_warehouse_id: e.target.value })}
+              >
+                <option value="">Pilih gudang</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="form-group">
+            <label>Item</label>
+            <select className="form-select" value={form.item_id} onChange={(e) => setForm({ ...form, item_id: e.target.value })}>
+              <option value="">Pilih item</option>
+              {items.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name} ({i.unit})
                 </option>
               ))}
             </select>
           </div>
-        )}
 
-        {(form.type === 'in' || form.type === 'transfer') && (
           <div className="form-group">
-            <label>Gudang Tujuan</label>
-            <select
-              className="form-select"
-              value={form.dest_warehouse_id}
-              onChange={(e) => setForm({ ...form, dest_warehouse_id: e.target.value })}
-            >
-              <option value="">Pilih gudang</option>
-              {warehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
+            <label>Jumlah</label>
+            <input
+              type="number"
+              className="form-input"
+              value={form.quantity}
+              onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+            />
           </div>
-        )}
 
-        <div className="form-group">
-          <label>Item</label>
-          <select className="form-select" value={form.item_id} onChange={(e) => setForm({ ...form, item_id: e.target.value })}>
-            <option value="">Pilih item</option>
-            {items.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.name} ({i.unit})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="form-group">
-          <label>Jumlah</label>
-          <input
-            type="number"
-            className="form-input"
-            value={form.quantity}
-            onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-          />
-        </div>
-
-        <div className="form-group">
-          <label>Catatan</label>
-          <textarea
-            className="form-textarea"
-            rows={2}
-            value={form.note}
-            onChange={(e) => setForm({ ...form, note: e.target.value })}
-          />
-        </div>
-      </Modal>
+          <div className="form-group">
+            <label>Catatan</label>
+            <textarea
+              className="form-textarea"
+              rows={2}
+              value={form.note}
+              onChange={(e) => setForm({ ...form, note: e.target.value })}
+            />
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

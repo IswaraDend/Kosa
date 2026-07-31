@@ -6,6 +6,8 @@ interface AuthContextValue {
   token: string | null;
   isAuthenticated: boolean;
   isSuperAdmin: boolean;
+  isAdmin: boolean;
+  isMember: boolean;
   login: (token: string, user: AuthUser) => void;
   logout: () => void;
 }
@@ -46,6 +48,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     token,
     isAuthenticated: !!token,
     isSuperAdmin: !!user?.is_super_admin,
+    isAdmin: !!user?.is_admin,
+    isMember: !!user?.is_member,
     login,
     logout,
   };

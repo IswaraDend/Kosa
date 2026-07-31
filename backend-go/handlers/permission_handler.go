@@ -153,3 +153,37 @@ func RevokePermission(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Permission berhasil dicabut"})
 }
+
+// ---- Admin routes: same logic as above, but with an ownership check first so
+// an admin of project A can't grant/revoke/view permissions for a UserRole
+// that actually belongs to project B. ----
+
+func ListGrantedPermissionsScoped(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	userRoleID, ok := paramUint(c, "userRoleId")
+	if !ok || !mustBelongToProject(userRoleID, projectID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User-role tidak ditemukan di project ini"})
+		return
+	}
+	ListGrantedPermissions(c)
+}
+
+func GrantPermissionScoped(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	userRoleID, ok := paramUint(c, "userRoleId")
+	if !ok || !mustBelongToProject(userRoleID, projectID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User-role tidak ditemukan di project ini"})
+		return
+	}
+	GrantPermission(c)
+}
+
+func RevokePermissionScoped(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	userRoleID, ok := paramUint(c, "userRoleId")
+	if !ok || !mustBelongToProject(userRoleID, projectID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User-role tidak ditemukan di project ini"})
+		return
+	}
+	RevokePermission(c)
+}

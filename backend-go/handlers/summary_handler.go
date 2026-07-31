@@ -36,3 +36,27 @@ func GetSummary(c *gin.Context) {
 		"total_members":    totalMembers,
 	})
 }
+
+// GetProjectSummaryForProject returns aggregate counts scoped to one project,
+// used by the Admin Ringkasan page (projectID is trusted, set by middleware).
+func GetProjectSummaryForProject(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+
+	var totalWarehouses, totalItems, totalMembers, totalTransactions int64
+	database.DB.Model(&models.Warehouse{}).Where("project_id = ?", projectID).Count(&totalWarehouses)
+	database.DB.Model(&models.Item{}).Where("project_id = ?", projectID).Count(&totalItems)
+	database.DB.Model(&models.Transaction{}).Where("project_id = ?", projectID).Count(&totalTransactions)
+
+	database.DB.Model(&models.UserRole{}).
+		Joins("JOIN roles ON roles.id = user_roles.role_id").
+		Where("roles.project_id = ? AND roles.name = ?", projectID, "member").
+		Distinct("user_roles.user_id").
+		Count(&totalMembers)
+
+	c.JSON(http.StatusOK, gin.H{
+		"total_warehouses":   totalWarehouses,
+		"total_items":        totalItems,
+		"total_members":      totalMembers,
+		"total_transactions": totalTransactions,
+	})
+}

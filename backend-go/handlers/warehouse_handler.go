@@ -9,6 +9,45 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func listWarehousesByProject(projectID uint) ([]models.Warehouse, error) {
+	var warehouses []models.Warehouse
+	err := database.DB.Model(&models.Warehouse{}).
+		Where("project_id = ?", projectID).
+		Order("created_at desc").Find(&warehouses).Error
+	return warehouses, err
+}
+
+func getWarehouseScoped(id, projectID uint) (models.Warehouse, error) {
+	var warehouse models.Warehouse
+	err := database.DB.Where("id = ? AND project_id = ?", id, projectID).First(&warehouse).Error
+	return warehouse, err
+}
+
+func createWarehouseCore(projectID uint, name, code, address string) (models.Warehouse, error) {
+	warehouse := models.Warehouse{ProjectID: projectID, Name: name, Code: code, Address: address}
+	err := database.DB.Create(&warehouse).Error
+	return warehouse, err
+}
+
+func deleteWarehouseScoped(id, projectID uint) error {
+	var stockCount int64
+	database.DB.Model(&models.Stock{}).Where("warehouse_id = ? AND quantity > 0", id).Count(&stockCount)
+	if stockCount > 0 {
+		return errConflict("Gudang masih memiliki stok, kosongkan dulu")
+	}
+
+	var txCount int64
+	database.DB.Model(&models.Transaction{}).
+		Where("(source_warehouse_id = ? OR dest_warehouse_id = ?) AND project_id = ?", id, id, projectID).Count(&txCount)
+	if txCount > 0 {
+		return errConflict("Gudang masih memiliki riwayat transaksi")
+	}
+
+	return database.DB.Where("project_id = ?", projectID).Delete(&models.Warehouse{}, id).Error
+}
+
+// ---- Super Admin routes (global, project_id optional via query) ----
+
 func ListWarehouses(c *gin.Context) {
 	query := database.DB.Model(&models.Warehouse{})
 	if projectID := queryUintPtr(c, "project_id"); projectID != nil {
@@ -54,8 +93,8 @@ func CreateWarehouse(c *gin.Context) {
 		return
 	}
 
-	warehouse := models.Warehouse{ProjectID: req.ProjectID, Name: req.Name, Code: req.Code, Address: req.Address}
-	if err := database.DB.Create(&warehouse).Error; err != nil {
+	warehouse, err := createWarehouseCore(req.ProjectID, req.Name, req.Code, req.Address)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat gudang"})
 		return
 	}
@@ -120,6 +159,109 @@ func DeleteWarehouse(c *gin.Context) {
 	}
 
 	if err := database.DB.Delete(&models.Warehouse{}, id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghapus gudang"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Gudang berhasil dihapus"})
+}
+
+// ---- Admin/Member routes (project trusted from context, set by middleware) ----
+
+func ListWarehousesForProject(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	warehouses, err := listWarehousesByProject(projectID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data gudang"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": warehouses, "total": len(warehouses)})
+}
+
+func GetWarehouseForProject(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	id, ok := paramID(c)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID tidak valid"})
+		return
+	}
+	warehouse, err := getWarehouseScoped(id, projectID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Gudang tidak ditemukan"})
+		return
+	}
+	c.JSON(http.StatusOK, warehouse)
+}
+
+type WarehouseFields struct {
+	Name    string `json:"name" binding:"required"`
+	Code    string `json:"code" binding:"required"`
+	Address string `json:"address"`
+}
+
+func CreateWarehouseForProject(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	var req WarehouseFields
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name dan code wajib diisi"})
+		return
+	}
+	warehouse, err := createWarehouseCore(projectID, req.Name, req.Code, req.Address)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat gudang"})
+		return
+	}
+	c.JSON(http.StatusCreated, warehouse)
+}
+
+func UpdateWarehouseForProject(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	id, ok := paramID(c)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID tidak valid"})
+		return
+	}
+
+	warehouse, err := getWarehouseScoped(id, projectID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Gudang tidak ditemukan"})
+		return
+	}
+
+	var req WarehouseFields
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name dan code wajib diisi"})
+		return
+	}
+
+	warehouse.Name = req.Name
+	warehouse.Code = req.Code
+	warehouse.Address = req.Address
+	if err := database.DB.Save(&warehouse).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memperbarui gudang"})
+		return
+	}
+	c.JSON(http.StatusOK, warehouse)
+}
+
+func DeleteWarehouseForProject(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	id, ok := paramID(c)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID tidak valid"})
+		return
+	}
+
+	if _, err := getWarehouseScoped(id, projectID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Gudang tidak ditemukan"})
+		return
+	}
+
+	if err := deleteWarehouseScoped(id, projectID); err != nil {
+		if ce, ok := err.(*conflictError); ok {
+			c.JSON(http.StatusConflict, gin.H{"error": ce.message})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menghapus gudang"})
 		return
 	}

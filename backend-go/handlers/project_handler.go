@@ -185,6 +185,58 @@ func ToggleProjectStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, buildProjectResponse(project))
 }
 
+func listProjectsForUserRole(userID uint, roleName string) ([]models.Project, error) {
+	var projects []models.Project
+	err := database.DB.
+		Joins("JOIN roles ON roles.project_id = projects.id").
+		Joins("JOIN user_roles ON user_roles.role_id = roles.id").
+		Where("roles.name = ? AND user_roles.user_id = ?", roleName, userID).
+		Distinct().
+		Order("projects.created_at desc").
+		Find(&projects).Error
+	return projects, err
+}
+
+// ListMyProjectsAsAdmin lists only the projects where the caller holds an "admin" Role.
+func ListMyProjectsAsAdmin(c *gin.Context) {
+	projects, err := listProjectsForUserRole(currentUserID(c), "admin")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data project"})
+		return
+	}
+	data := make([]ProjectResponse, 0, len(projects))
+	for _, p := range projects {
+		data = append(data, buildProjectResponse(p))
+	}
+	c.JSON(http.StatusOK, gin.H{"data": data, "total": len(data)})
+}
+
+// ListMyProjectsAsMember lists only the projects where the caller holds a "member" Role.
+func ListMyProjectsAsMember(c *gin.Context) {
+	projects, err := listProjectsForUserRole(currentUserID(c), "member")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data project"})
+		return
+	}
+	data := make([]ProjectResponse, 0, len(projects))
+	for _, p := range projects {
+		data = append(data, buildProjectResponse(p))
+	}
+	c.JSON(http.StatusOK, gin.H{"data": data, "total": len(data)})
+}
+
+// GetMyProject returns the project the middleware already validated the
+// caller has access to (RequireProjectRole/RequirePermission set "projectID").
+func GetMyProject(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	var project models.Project
+	if err := database.DB.First(&project, projectID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Project tidak ditemukan"})
+		return
+	}
+	c.JSON(http.StatusOK, buildProjectResponse(project))
+}
+
 func DeleteProject(c *gin.Context) {
 	id, ok := paramID(c)
 	if !ok {

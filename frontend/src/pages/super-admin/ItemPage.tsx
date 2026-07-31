@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Plus, Box, Trash2, Pencil } from 'lucide-react';
+import { Plus, Package, Trash2, Pencil } from 'lucide-react';
 import { api, ApiError, buildQuery } from '../../lib/api';
-import type { Warehouse } from '../../types';
+import type { Item } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
@@ -11,58 +11,57 @@ import ConfirmDialog from '../../components/ConfirmDialog';
 import ProjectPicker from '../../components/ProjectPicker';
 import '../Dashboard.css';
 
-interface WarehouseFormState {
+interface ItemFormState {
+  sku: string;
   name: string;
-  code: string;
-  address: string;
+  unit: string;
 }
 
-const emptyForm: WarehouseFormState = { name: '', code: '', address: '' };
+const emptyForm: ItemFormState = { sku: '', name: '', unit: '' };
 
-interface GudangPageProps {
-  /** '/super-admin' (global, project scoped via ?project_id query) or '/admin/projects' (path-scoped: /admin/projects/:id/...) */
+interface ItemPageProps {
   apiBasePrefix?: string;
   scopeMode?: 'query' | 'path';
   projectEndpoint?: string;
   includeAllOption?: boolean;
 }
 
-const GudangPage = ({
+const ItemPage = ({
   apiBasePrefix = '/super-admin',
   scopeMode = 'query',
   projectEndpoint = '/super-admin/projects',
   includeAllOption = true,
-}: GudangPageProps) => {
+}: ItemPageProps) => {
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
 
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<Warehouse | null>(null);
-  const [form, setForm] = useState<WarehouseFormState>(emptyForm);
+  const [editing, setEditing] = useState<Item | null>(null);
+  const [form, setForm] = useState<ItemFormState>(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<Warehouse | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Item | null>(null);
 
   const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
   const listQuery = scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId }) : '';
 
-  const loadWarehouses = () => {
+  const loadItems = () => {
     if (selectedProjectId === 'all') {
-      setWarehouses([]);
+      setItems([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     api
-      .get<{ data: Warehouse[] }>(`${resourceBase}/warehouses${listQuery}`)
-      .then((res) => setWarehouses(res.data))
-      .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat data gudang'))
+      .get<{ data: Item[] }>(`${resourceBase}/items${listQuery}`)
+      .then((res) => setItems(res.data))
+      .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat data item'))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
-    loadWarehouses();
+    loadItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProjectId, apiBasePrefix, scopeMode]);
 
@@ -72,9 +71,9 @@ const GudangPage = ({
     setFormOpen(true);
   };
 
-  const openEditForm = (w: Warehouse) => {
-    setEditing(w);
-    setForm({ name: w.name, code: w.code, address: w.address });
+  const openEditForm = (item: Item) => {
+    setEditing(item);
+    setForm({ sku: item.sku, name: item.name, unit: item.unit });
     setFormOpen(true);
   };
 
@@ -83,14 +82,14 @@ const GudangPage = ({
     setErrorMsg('');
     try {
       if (editing) {
-        await api.put(`${resourceBase}/warehouses/${editing.id}`, form);
+        await api.put(`${resourceBase}/items/${editing.id}`, form);
       } else {
-        await api.post(`${resourceBase}/warehouses`, { ...form, project_id: Number(selectedProjectId) });
+        await api.post(`${resourceBase}/items`, { ...form, project_id: Number(selectedProjectId) });
       }
       setFormOpen(false);
-      loadWarehouses();
+      loadItems();
     } catch (err) {
-      setErrorMsg(err instanceof ApiError ? err.message : 'Gagal menyimpan gudang');
+      setErrorMsg(err instanceof ApiError ? err.message : 'Gagal menyimpan item');
     } finally {
       setSaving(false);
     }
@@ -99,11 +98,11 @@ const GudangPage = ({
   const handleDelete = async () => {
     if (!confirmDelete) return;
     try {
-      await api.delete(`${resourceBase}/warehouses/${confirmDelete.id}`);
+      await api.delete(`${resourceBase}/items/${confirmDelete.id}`);
       setConfirmDelete(null);
-      loadWarehouses();
+      loadItems();
     } catch (err) {
-      setErrorMsg(err instanceof ApiError ? err.message : 'Gagal menghapus gudang');
+      setErrorMsg(err instanceof ApiError ? err.message : 'Gagal menghapus item');
       setConfirmDelete(null);
     }
   };
@@ -111,12 +110,12 @@ const GudangPage = ({
   return (
     <div className="dashboard-content">
       <PageHeader
-        title="Gudang"
-        subtitle="Kelola gudang penyimpanan untuk project terpilih"
+        title="Item"
+        subtitle="Kelola master data barang untuk project terpilih"
         actions={
           <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
             <Plus size={18} />
-            Tambah Gudang
+            Tambah Item
           </button>
         }
       />
@@ -136,44 +135,43 @@ const GudangPage = ({
       )}
 
       {selectedProjectId === 'all' ? (
-        <p style={{ color: 'var(--text-muted)' }}>Pilih project terlebih dahulu untuk melihat daftar gudang.</p>
+        <p style={{ color: 'var(--text-muted)' }}>Pilih project terlebih dahulu untuk melihat daftar item.</p>
       ) : (
         <>
-          <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
-            <StatCard label="Total Gudang" value={warehouses.length} icon={<Box size={18} />} />
-            <StatCard label="Gudang Aktif" value={warehouses.length} icon={<Box size={18} />} />
+          <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(1, 1fr)' }}>
+            <StatCard label="Total Item" value={items.length} icon={<Package size={18} />} />
           </div>
 
-          <TableCard title="Daftar Gudang" count={warehouses.length}>
+          <TableCard title="Daftar Item" count={items.length}>
             <thead>
               <tr>
-                <th>NAMA GUDANG</th>
-                <th>KODE</th>
-                <th>ALAMAT</th>
+                <th>SKU</th>
+                <th>NAMA ITEM</th>
+                <th>SATUAN</th>
                 <th>DIBUAT</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {!loading &&
-                warehouses.map((w) => (
-                  <tr key={w.id}>
-                    <td>{w.name}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>{w.code}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>{w.address}</td>
+                items.map((item) => (
+                  <tr key={item.id}>
+                    <td style={{ color: 'var(--text-muted)' }}>{item.sku}</td>
+                    <td>{item.name}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{item.unit}</td>
                     <td style={{ color: 'var(--text-muted)' }}>
-                      {new Date(w.created_at).toLocaleDateString('id-ID')}
+                      {new Date(item.created_at).toLocaleDateString('id-ID')}
                     </td>
                     <td style={{ textAlign: 'right', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                       <button
                         style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                        onClick={() => openEditForm(w)}
+                        onClick={() => openEditForm(item)}
                       >
                         <Pencil size={16} />
                       </button>
                       <button
                         style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
-                        onClick={() => setConfirmDelete(w)}
+                        onClick={() => setConfirmDelete(item)}
                       >
                         <Trash2 size={16} />
                       </button>
@@ -188,7 +186,7 @@ const GudangPage = ({
       <Modal
         isOpen={formOpen}
         onClose={() => setFormOpen(false)}
-        title={editing ? 'Edit Gudang' : 'Tambah Gudang'}
+        title={editing ? 'Edit Item' : 'Tambah Item'}
         footer={
           <>
             <button className="btn-secondary" onClick={() => setFormOpen(false)}>
@@ -201,28 +199,28 @@ const GudangPage = ({
         }
       >
         <div className="form-group">
-          <label>Nama Gudang</label>
+          <label>SKU</label>
+          <input className="form-input" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+        </div>
+        <div className="form-group">
+          <label>Nama Item</label>
           <input className="form-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </div>
         <div className="form-group">
-          <label>Kode</label>
-          <input className="form-input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
-        </div>
-        <div className="form-group">
-          <label>Alamat</label>
-          <textarea
-            className="form-textarea"
-            rows={2}
-            value={form.address}
-            onChange={(e) => setForm({ ...form, address: e.target.value })}
+          <label>Satuan</label>
+          <input
+            className="form-input"
+            placeholder="pcs, box, kg, dst"
+            value={form.unit}
+            onChange={(e) => setForm({ ...form, unit: e.target.value })}
           />
         </div>
       </Modal>
 
       <ConfirmDialog
         isOpen={!!confirmDelete}
-        title="Hapus Gudang"
-        message={`Yakin ingin menghapus gudang "${confirmDelete?.name}"?`}
+        title="Hapus Item"
+        message={`Yakin ingin menghapus item "${confirmDelete?.name}"?`}
         confirmLabel="Hapus"
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(null)}
@@ -231,4 +229,4 @@ const GudangPage = ({
   );
 };
 
-export default GudangPage;
+export default ItemPage;

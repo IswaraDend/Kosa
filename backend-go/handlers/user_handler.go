@@ -83,6 +83,38 @@ type CreateUserRequest struct {
 	RoleName string `json:"role_name" binding:"required,oneof=admin member"`
 }
 
+// createUserWithRole creates a User and assigns them roleName in projectID,
+// all in one DB transaction — shared by Super Admin's CreateUser (any role)
+// and Admin's AddProjectMember (role hardcoded to "member").
+func createUserWithRole(name, email, hashedPassword string, callerID, projectID uint, roleName string) (models.User, models.UserRole, models.Role, error) {
+	var user models.User
+	var role models.Role
+	var userRole models.UserRole
+
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		user = models.User{
+			Name:         name,
+			Email:        email,
+			Password:     hashedPassword,
+			IsSuperAdmin: false,
+			CreatorID:    &callerID,
+		}
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Where(models.Role{ProjectID: projectID, Name: roleName}).
+			FirstOrCreate(&role).Error; err != nil {
+			return err
+		}
+
+		userRole = models.UserRole{UserID: user.ID, RoleID: role.ID}
+		return tx.Create(&userRole).Error
+	})
+
+	return user, userRole, role, err
+}
+
 func CreateUser(c *gin.Context) {
 	var req CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -103,30 +135,7 @@ func CreateUser(c *gin.Context) {
 	}
 
 	callerID := currentUserID(c)
-	var user models.User
-	var role models.Role
-	var userRole models.UserRole
-
-	err = database.DB.Transaction(func(tx *gorm.DB) error {
-		user = models.User{
-			Name:         req.Name,
-			Email:        req.Email,
-			Password:     string(hashedPassword),
-			IsSuperAdmin: false,
-			CreatorID:    &callerID,
-		}
-		if err := tx.Create(&user).Error; err != nil {
-			return err
-		}
-
-		if err := tx.Where(models.Role{ProjectID: req.ProjectID, Name: req.RoleName}).
-			FirstOrCreate(&role).Error; err != nil {
-			return err
-		}
-
-		userRole = models.UserRole{UserID: user.ID, RoleID: role.ID}
-		return tx.Create(&userRole).Error
-	})
+	user, userRole, role, err := createUserWithRole(req.Name, req.Email, string(hashedPassword), callerID, req.ProjectID, req.RoleName)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat user: " + err.Error()})

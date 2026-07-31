@@ -3,6 +3,8 @@ export interface AuthUser {
   name: string;
   email: string;
   is_super_admin: boolean;
+  is_admin: boolean;
+  is_member: boolean;
 }
 
 export interface Project {

@@ -3,12 +3,14 @@ package database
 import (
 	"backend-go/models"
 	"log"
+	"time"
 
 	"os"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 var DB *gorm.DB
@@ -19,7 +21,17 @@ func Connect() {
 		// Fallback for development if .env is missing
 		dsn = "host=localhost user=postgres password=password123 dbname=stockpulse port=5432 sslmode=disable TimeZone=UTC"
 	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+
+	gormLogger := logger.New(
+		log.New(log.Writer(), "\r\n", log.LstdFlags),
+		logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+		},
+	)
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: gormLogger})
 	if err != nil {
 		log.Println("WARNING: Failed to connect to database. Pastikan PostgreSQL menyala dan database 'stockpulse' tersedia.", err)
 		return
@@ -74,5 +86,20 @@ func SeedData() {
 		DB.Create(&superAdmin)
 		DB.Create(&admin)
 		log.Println("Seeder executed! Akun iswaradend@gmail.com (Super Admin) dan admin@perusahaan.com telah dibuat. Default password: password123")
+	}
+
+	seedPermissions()
+}
+
+func seedPermissions() {
+	defaults := []models.Permission{
+		{Code: "warehouse.view", Name: "Lihat Gudang", Module: "warehouse"},
+		{Code: "item.view", Name: "Lihat Item", Module: "item"},
+		{Code: "transaction.view", Name: "Lihat Transaksi", Module: "transaction"},
+		{Code: "transaction.create", Name: "Buat Transaksi", Module: "transaction"},
+		{Code: "report.view", Name: "Lihat Laporan", Module: "report"},
+	}
+	for _, p := range defaults {
+		DB.Where(models.Permission{Code: p.Code}).FirstOrCreate(&p)
 	}
 }

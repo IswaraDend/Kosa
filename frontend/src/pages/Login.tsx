@@ -32,12 +32,15 @@ const Login = () => {
       if (response.ok) {
         login(data.token, data.user);
 
-        // Routing berdasarkan RBAC baru
+        // Routing berdasarkan role user
         if (data.user.is_super_admin) {
           navigate('/super-admin');
-        } else {
-          // Sementara arahkan ke Admin, nanti bisa dicek lagi role spesifiknya
+        } else if (data.user.is_admin) {
           navigate('/admin');
+        } else if (data.user.is_member) {
+          navigate('/member');
+        } else {
+          navigate('/login');
         }
       } else {
         setErrorMsg(data.error || 'Login gagal');

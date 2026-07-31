@@ -46,11 +46,16 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	isAdmin := hasRole(user.ID, "admin")
+	isMember := hasRole(user.ID, "member")
+
 	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &middleware.Claims{
 		ID:           user.ID,
 		Email:        user.Email,
 		IsSuperAdmin: user.IsSuperAdmin,
+		IsAdmin:      isAdmin,
+		IsMember:     isMember,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
 		},
@@ -71,6 +76,17 @@ func Login(c *gin.Context) {
 			"name":           user.Name,
 			"email":          user.Email,
 			"is_super_admin": user.IsSuperAdmin,
+			"is_admin":       isAdmin,
+			"is_member":      isMember,
 		},
 	})
+}
+
+func hasRole(userID uint, roleName string) bool {
+	var count int64
+	database.DB.Model(&models.UserRole{}).
+		Joins("JOIN roles ON roles.id = user_roles.role_id").
+		Where("roles.name = ? AND user_roles.user_id = ?", roleName, userID).
+		Count(&count)
+	return count > 0
 }

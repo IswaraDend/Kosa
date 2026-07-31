@@ -4,18 +4,26 @@ import { useAuth } from '../hooks/useAuth';
 
 interface RequireAuthProps {
   children: ReactNode;
-  requireSuperAdmin?: boolean;
+  requireRole?: 'super-admin' | 'admin' | 'member';
 }
 
-const RequireAuth = ({ children, requireSuperAdmin }: RequireAuthProps) => {
-  const { isAuthenticated, isSuperAdmin } = useAuth();
+const RequireAuth = ({ children, requireRole }: RequireAuthProps) => {
+  const { isAuthenticated, isSuperAdmin, isAdmin, isMember } = useAuth();
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
-  if (requireSuperAdmin && !isSuperAdmin) {
-    return <Navigate to="/" replace />;
+  const homePath = isSuperAdmin ? '/super-admin' : isAdmin ? '/admin' : isMember ? '/member' : '/login';
+
+  if (requireRole === 'super-admin' && !isSuperAdmin) {
+    return <Navigate to={homePath} replace />;
+  }
+  if (requireRole === 'admin' && !isSuperAdmin && !isAdmin) {
+    return <Navigate to={homePath} replace />;
+  }
+  if (requireRole === 'member' && !isSuperAdmin && !isAdmin && !isMember) {
+    return <Navigate to={homePath} replace />;
   }
 
   return <>{children}</>;
