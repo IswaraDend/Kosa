@@ -1,14 +1,13 @@
-import SharedTransaksiPage from '../super-admin/TransaksiPage';
+import SharedProduksiPage from '../super-admin/ProduksiPage';
 
-const TransaksiPage = () => (
-  <SharedTransaksiPage
+const ProduksiPage = () => (
+  <SharedProduksiPage
     apiBasePrefix="/admin/projects"
     scopeMode="path"
     projectEndpoint="/admin/projects"
     includeAllOption={false}
     showProjectPicker={false}
-    canCreate
   />
 );
 
-export default TransaksiPage;
+export default ProduksiPage;

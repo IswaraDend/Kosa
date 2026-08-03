@@ -3,6 +3,7 @@ import { Plus, ArrowDownCircle, ArrowUpCircle, ArrowRightLeft } from 'lucide-rea
 import { api, ApiError, buildQuery } from '../../lib/api';
 import type { Item, TransactionRecord, TransactionType, Warehouse } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
+import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import TableCard from '../../components/TableCard';
@@ -38,6 +39,7 @@ interface TransaksiPageProps {
   projectEndpoint?: string;
   includeAllOption?: boolean;
   canCreate?: boolean;
+  showProjectPicker?: boolean;
 }
 
 const TransaksiPage = ({
@@ -46,8 +48,10 @@ const TransaksiPage = ({
   projectEndpoint = '/super-admin/projects',
   includeAllOption = true,
   canCreate = true,
+  showProjectPicker = true,
 }: TransaksiPageProps) => {
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
+  useProjectAutoSelect(projectEndpoint, !showProjectPicker);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -147,15 +151,17 @@ const TransaksiPage = ({
         }
       />
 
-      <div className="form-group" style={{ maxWidth: 280 }}>
-        <label>Project</label>
-        <ProjectPicker
-          value={selectedProjectId}
-          onChange={setSelectedProjectId}
-          includeAllOption={includeAllOption}
-          endpoint={projectEndpoint}
-        />
-      </div>
+      {showProjectPicker && (
+        <div className="form-group" style={{ maxWidth: 280 }}>
+          <label>Project</label>
+          <ProjectPicker
+            value={selectedProjectId}
+            onChange={setSelectedProjectId}
+            includeAllOption={includeAllOption}
+            endpoint={projectEndpoint}
+          />
+        </div>
+      )}
 
       {errorMsg && (
         <div style={{ color: 'var(--danger)', marginBottom: '16px', fontSize: '14px' }}>{errorMsg}</div>

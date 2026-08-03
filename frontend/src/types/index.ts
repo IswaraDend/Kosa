@@ -117,3 +117,47 @@ export interface TransactionReportRow {
   type: TransactionType;
   total_qty: number;
 }
+
+export interface Product {
+  id: number;
+  project_id: number;
+  sku: string;
+  name: string;
+  unit: string;
+  created_at: string;
+}
+
+export interface ProductRecipeLine {
+  id: number;
+  project_id: number;
+  product_id: number;
+  item_id: number;
+  quantity_per_unit: number;
+  created_at: string;
+  item?: Item;
+}
+
+export interface ProductStockRow {
+  id: number;
+  project_id: number;
+  warehouse_id: number;
+  product_id: number;
+  quantity: number;
+  updated_at: string;
+  warehouse?: Warehouse;
+}
+
+export interface ProductionRecord {
+  id: number;
+  project_id: number;
+  warehouse_id: number;
+  product_id: number;
+  quantity: number;
+  note: string;
+  transaction_id: number | null;
+  performed_by: number;
+  created_at: string;
+  product?: Product;
+  warehouse?: Warehouse;
+  transaction?: TransactionRecord;
+}

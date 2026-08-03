@@ -69,9 +69,23 @@ func RegisterRoutes(r *gin.Engine) {
 		superAdmin.DELETE("/items/:id", handlers.DeleteItem)
 		superAdmin.GET("/items/:id/stock", handlers.GetItemStock)
 
+		superAdmin.GET("/products", handlers.ListProducts)
+		superAdmin.POST("/products", handlers.CreateProduct)
+		superAdmin.GET("/products/:id", handlers.GetProduct)
+		superAdmin.PUT("/products/:id", handlers.UpdateProduct)
+		superAdmin.DELETE("/products/:id", handlers.DeleteProduct)
+		superAdmin.GET("/products/:id/stock", handlers.GetProductStock)
+		superAdmin.GET("/products/:id/recipe", handlers.ListProductRecipe)
+		superAdmin.POST("/products/:id/recipe", handlers.AddProductRecipe)
+		superAdmin.DELETE("/products/:id/recipe/:recipeId", handlers.RemoveProductRecipe)
+
 		superAdmin.GET("/transactions", handlers.ListTransactions)
 		superAdmin.POST("/transactions", handlers.CreateTransaction)
 		superAdmin.GET("/transactions/:id", handlers.GetTransaction)
+
+		superAdmin.GET("/productions", handlers.ListProductions)
+		superAdmin.POST("/productions", handlers.CreateProduction)
+		superAdmin.GET("/productions/:id", handlers.GetProduction)
 
 		superAdmin.GET("/reports/stock-summary", handlers.StockSummaryReport)
 		superAdmin.GET("/reports/transactions", handlers.TransactionReport)
@@ -110,9 +124,23 @@ func RegisterRoutes(r *gin.Engine) {
 			adminProject.DELETE("/items/:id", handlers.DeleteItemForProject)
 			adminProject.GET("/items/:id/stock", handlers.GetItemStockForProject)
 
+			adminProject.GET("/products", handlers.ListProductsForProject)
+			adminProject.POST("/products", handlers.CreateProductForProject)
+			adminProject.GET("/products/:id", handlers.GetProductForProject)
+			adminProject.PUT("/products/:id", handlers.UpdateProductForProject)
+			adminProject.DELETE("/products/:id", handlers.DeleteProductForProject)
+			adminProject.GET("/products/:id/stock", handlers.GetProductStockForProject)
+			adminProject.GET("/products/:id/recipe", handlers.ListProductRecipeForProject)
+			adminProject.POST("/products/:id/recipe", handlers.AddProductRecipeForProject)
+			adminProject.DELETE("/products/:id/recipe/:recipeId", handlers.RemoveProductRecipeForProject)
+
 			adminProject.GET("/transactions", handlers.ListTransactionsForProject)
 			adminProject.POST("/transactions", handlers.CreateTransactionForProject)
 			adminProject.GET("/transactions/:id", handlers.GetTransactionForProject)
+
+			adminProject.GET("/productions", handlers.ListProductionsForProject)
+			adminProject.POST("/productions", handlers.CreateProductionForProject)
+			adminProject.GET("/productions/:id", handlers.GetProductionForProject)
 
 			adminProject.GET("/reports/stock-summary", handlers.StockSummaryReportForProject)
 			adminProject.GET("/reports/transactions", handlers.TransactionReportForProject)

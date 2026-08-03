@@ -24,7 +24,7 @@ func ListProjectMembers(c *gin.Context) {
 		Joins("JOIN projects ON projects.id = roles.project_id").
 		Where("roles.project_id = ?", projectID)
 
-	var data []UserListItem
+	data := []UserListItem{}
 	if err := query.Order("users.created_at desc").Scan(&data).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data member"})
 		return

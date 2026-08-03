@@ -10,7 +10,7 @@ import (
 )
 
 func listItemsByProject(projectID uint) ([]models.Item, error) {
-	var items []models.Item
+	items := []models.Item{}
 	err := database.DB.Model(&models.Item{}).
 		Where("project_id = ?", projectID).
 		Order("created_at desc").Find(&items).Error
@@ -44,7 +44,7 @@ func deleteItemScoped(id, projectID uint) error {
 }
 
 func getItemStockScoped(id, projectID uint) ([]models.Stock, error) {
-	var stocks []models.Stock
+	stocks := []models.Stock{}
 	err := database.DB.Where("item_id = ? AND project_id = ?", id, projectID).Preload("Warehouse").Find(&stocks).Error
 	return stocks, err
 }
@@ -57,7 +57,7 @@ func ListItems(c *gin.Context) {
 		query = query.Where("project_id = ?", *projectID)
 	}
 
-	var items []models.Item
+	items := []models.Item{}
 	if err := query.Order("created_at desc").Find(&items).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data item"})
 		return
@@ -170,7 +170,7 @@ func GetItemStock(c *gin.Context) {
 		return
 	}
 
-	var stocks []models.Stock
+	stocks := []models.Stock{}
 	if err := database.DB.Where("item_id = ?", id).Preload("Warehouse").Find(&stocks).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data stok"})
 		return

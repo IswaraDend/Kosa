@@ -3,14 +3,15 @@ import { Box } from 'lucide-react';
 import { api, ApiError } from '../../lib/api';
 import type { Warehouse } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
+import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import TableCard from '../../components/TableCard';
-import ProjectPicker from '../../components/ProjectPicker';
 import '../Dashboard.css';
 
 const GudangPage = () => {
-  const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
+  const { selectedProjectId } = useSelectedProject();
+  useProjectAutoSelect('/member/projects', true);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -32,16 +33,6 @@ const GudangPage = () => {
   return (
     <div className="dashboard-content">
       <PageHeader title="Gudang" subtitle="Daftar gudang (read only)" />
-
-      <div className="form-group" style={{ maxWidth: 280 }}>
-        <label>Project</label>
-        <ProjectPicker
-          value={selectedProjectId}
-          onChange={setSelectedProjectId}
-          includeAllOption={false}
-          endpoint="/member/projects"
-        />
-      </div>
 
       {errorMsg && (
         <div style={{ color: 'var(--danger)', marginBottom: '16px', fontSize: '14px' }}>{errorMsg}</div>

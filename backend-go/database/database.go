@@ -51,8 +51,12 @@ func Connect() {
 		&models.Warehouse{},
 		&models.Item{},
 		&models.Stock{},
+		&models.Product{},
+		&models.ProductRecipe{},
+		&models.ProductStock{},
 		&models.Transaction{},
 		&models.TransactionItem{},
+		&models.Production{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed:", err)

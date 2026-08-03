@@ -6,6 +6,7 @@ const LaporanPage = () => (
     scopeMode="path"
     projectEndpoint="/member/projects"
     includeAllOption={false}
+    showProjectPicker={false}
   />
 );
 

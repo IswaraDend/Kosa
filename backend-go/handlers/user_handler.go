@@ -40,7 +40,7 @@ func ListUsers(c *gin.Context) {
 		query = query.Where("roles.name = ?", role)
 	}
 
-	var data []UserListItem
+	data := []UserListItem{}
 	if err := query.Order("users.created_at desc").Scan(&data).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data user"})
 		return
@@ -62,7 +62,7 @@ func GetUser(c *gin.Context) {
 		return
 	}
 
-	var userRoles []models.UserRole
+	userRoles := []models.UserRole{}
 	database.DB.Where("user_id = ?", id).Preload("Role.Project").Find(&userRoles)
 
 	c.JSON(http.StatusOK, gin.H{

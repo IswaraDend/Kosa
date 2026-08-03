@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, Box, Package, Lock, BarChart2, FileText, Radio, Folder, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, Box, Package, PackagePlus, Factory, Lock, BarChart2, FileText, Radio, Folder, LogOut } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useMemberPermissions } from '../hooks/useMemberPermissions';
 import './DashboardLayout.css';
@@ -28,6 +28,8 @@ const DashboardLayout = () => {
       { path: '/super-admin/users', label: 'Admin & Member', icon: <Users size={18} /> },
       { path: '/super-admin/gudang', label: 'Gudang', icon: <Box size={18} /> },
       { path: '/super-admin/item', label: 'Item', icon: <Package size={18} /> },
+      { path: '/super-admin/produk', label: 'Produk', icon: <PackagePlus size={18} /> },
+      { path: '/super-admin/produksi', label: 'Produksi', icon: <Factory size={18} /> },
       { path: '/super-admin/permission', label: 'Permission', icon: <Lock size={18} /> },
       { path: '/super-admin/transaksi', label: 'Transaksi', icon: <BarChart2 size={18} /> },
       { path: '/super-admin/laporan', label: 'Laporan', icon: <FileText size={18} /> },
@@ -40,6 +42,8 @@ const DashboardLayout = () => {
       { path: '/admin/permission', label: 'Permission', icon: <Lock size={18} /> },
       { path: '/admin/gudang', label: 'Gudang', icon: <Box size={18} /> },
       { path: '/admin/item', label: 'Item', icon: <Package size={18} /> },
+      { path: '/admin/produk', label: 'Produk', icon: <PackagePlus size={18} /> },
+      { path: '/admin/produksi', label: 'Produksi', icon: <Factory size={18} /> },
       { path: '/admin/transaksi', label: 'Transaksi', icon: <BarChart2 size={18} /> },
       { path: '/admin/laporan', label: 'Laporan', icon: <FileText size={18} /> },
     ];

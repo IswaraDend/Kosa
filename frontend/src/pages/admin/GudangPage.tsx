@@ -6,6 +6,7 @@ const GudangPage = () => (
     scopeMode="path"
     projectEndpoint="/admin/projects"
     includeAllOption={false}
+    showProjectPicker={false}
   />
 );
 

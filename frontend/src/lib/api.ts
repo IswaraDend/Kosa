@@ -34,7 +34,16 @@ async function request<T>(
     return undefined as T;
   }
 
-  return res.json() as Promise<T>;
+  const body = await res.json();
+
+  // Go serializes a nil slice as `null`, not `[]` — list endpoints follow the
+  // {data, total} convention, so normalize a null `data` field to an empty
+  // array here once instead of null-guarding every page that consumes it.
+  if (body && typeof body === 'object' && 'data' in body && body.data === null) {
+    body.data = [];
+  }
+
+  return body as T;
 }
 
 export function buildQuery(params: Record<string, string | number | undefined | null>): string {

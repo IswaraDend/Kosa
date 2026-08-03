@@ -15,7 +15,7 @@ func ListPermissions(c *gin.Context) {
 		query = query.Where("module = ?", module)
 	}
 
-	var permissions []models.Permission
+	permissions := []models.Permission{}
 	if err := query.Find(&permissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data permission"})
 		return
@@ -103,7 +103,7 @@ func DeletePermission(c *gin.Context) {
 func ListGrantedPermissions(c *gin.Context) {
 	userRoleID := c.Param("userRoleId")
 
-	var granted []models.MemberPermission
+	granted := []models.MemberPermission{}
 	if err := database.DB.Where("user_role_id = ?", userRoleID).Preload("Permission").Find(&granted).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data permission"})
 		return

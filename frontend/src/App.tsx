@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import Login from './pages/Login';
 import DashboardLayout from './layouts/DashboardLayout';
+import MemberLayout from './layouts/MemberLayout';
 import RequireAuth from './components/RequireAuth';
 import { useAuth } from './hooks/useAuth';
 import RingkasanPage from './pages/super-admin/RingkasanPage';
@@ -8,6 +9,8 @@ import KelolaProjectPage from './pages/super-admin/KelolaProjectPage';
 import UsersPage from './pages/super-admin/UsersPage';
 import GudangPage from './pages/super-admin/GudangPage';
 import ItemPage from './pages/super-admin/ItemPage';
+import ProductPage from './pages/super-admin/ProductPage';
+import ProduksiPage from './pages/super-admin/ProduksiPage';
 import PermissionPage from './pages/super-admin/PermissionPage';
 import TransaksiPage from './pages/super-admin/TransaksiPage';
 import LaporanPage from './pages/super-admin/LaporanPage';
@@ -16,9 +19,11 @@ import AdminMembersPage from './pages/admin/MembersPage';
 import AdminPermissionPage from './pages/admin/PermissionPage';
 import AdminGudangPage from './pages/admin/GudangPage';
 import AdminItemPage from './pages/admin/ItemPage';
+import AdminProductPage from './pages/admin/ProductPage';
+import AdminProduksiPage from './pages/admin/ProduksiPage';
 import AdminTransaksiPage from './pages/admin/TransaksiPage';
 import AdminLaporanPage from './pages/admin/LaporanPage';
-import MemberRingkasanPage from './pages/member/RingkasanPage';
+import MemberDashboardPage from './pages/member/DashboardPage';
 import MemberGudangPage from './pages/member/GudangPage';
 import MemberTransaksiPage from './pages/member/TransaksiPage';
 import MemberLaporanPage from './pages/member/LaporanPage';
@@ -59,6 +64,8 @@ function App() {
             <Route path="users" element={<UsersPage />} />
             <Route path="gudang" element={<GudangPage />} />
             <Route path="item" element={<ItemPage />} />
+            <Route path="produk" element={<ProductPage />} />
+            <Route path="produksi" element={<ProduksiPage />} />
             <Route path="permission" element={<PermissionPage />} />
             <Route path="transaksi" element={<TransaksiPage />} />
             <Route path="laporan" element={<LaporanPage />} />
@@ -77,25 +84,27 @@ function App() {
             <Route path="permission" element={<AdminPermissionPage />} />
             <Route path="gudang" element={<AdminGudangPage />} />
             <Route path="item" element={<AdminItemPage />} />
+            <Route path="produk" element={<AdminProductPage />} />
+            <Route path="produksi" element={<AdminProduksiPage />} />
             <Route path="transaksi" element={<AdminTransaksiPage />} />
             <Route path="laporan" element={<AdminLaporanPage />} />
           </Route>
 
-          <Route
-            path="member"
-            element={
-              <RequireAuth requireRole="member">
-                <Outlet />
-              </RequireAuth>
-            }
-          >
-            <Route index element={<MemberRingkasanPage />} />
-            <Route path="gudang" element={<MemberGudangPage />} />
-            <Route path="transaksi" element={<MemberTransaksiPage />} />
-            <Route path="laporan" element={<MemberLaporanPage />} />
-          </Route>
-
           <Route index element={<HomeRedirect />} />
+        </Route>
+
+        <Route
+          path="/member"
+          element={
+            <RequireAuth requireRole="member">
+              <MemberLayout />
+            </RequireAuth>
+          }
+        >
+          <Route index element={<MemberDashboardPage />} />
+          <Route path="gudang" element={<MemberGudangPage />} />
+          <Route path="transaksi" element={<MemberTransaksiPage />} />
+          <Route path="laporan" element={<MemberLaporanPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/login" replace />} />

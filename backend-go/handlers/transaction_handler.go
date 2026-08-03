@@ -55,7 +55,7 @@ func listTransactionsByProject(projectID uint, warehouseID *uint, txType, from, 
 		query = query.Where("created_at <= ?", to)
 	}
 
-	var transactions []models.Transaction
+	transactions := []models.Transaction{}
 	err := query.Order("created_at desc").Find(&transactions).Error
 	return transactions, err
 }
@@ -91,69 +91,80 @@ func validateTransactionShape(t models.TransactionType, source, dest *uint) (*ui
 	return source, dest, nil
 }
 
-// createTransactionCore is the trusted entry point: projectID always comes
-// from the caller (either the request body on Super Admin routes, or the
-// middleware-validated path param on Admin/Member routes) — never re-derived
-// from anything inside req.
-func createTransactionCore(projectID, callerID uint, txType models.TransactionType, source, dest *uint, note string, items []TransactionItemRequest) (models.Transaction, error) {
+// createTransactionTx is the composable core: the caller supplies an
+// already-open transaction handle, so it can be combined atomically with
+// other writes (e.g. Production also updating ProductStock in the same
+// database.DB.Transaction) instead of opening its own.
+func createTransactionTx(tx *gorm.DB, projectID, callerID uint, txType models.TransactionType, source, dest *uint, note string, items []TransactionItemRequest) (models.Transaction, error) {
 	source, dest, err := validateTransactionShape(txType, source, dest)
 	if err != nil {
 		return models.Transaction{}, err
 	}
 
+	if source != nil {
+		for _, line := range items {
+			var stock models.Stock
+			err := tx.Where("warehouse_id = ? AND item_id = ?", *source, line.ItemID).
+				First(&stock).Error
+			if err == gorm.ErrRecordNotFound || (err == nil && stock.Quantity < line.Quantity) {
+				return models.Transaction{}, fmt.Errorf("stok tidak cukup untuk item ID %d", line.ItemID)
+			}
+			if err != nil {
+				return models.Transaction{}, err
+			}
+		}
+	}
+
+	transaction := models.Transaction{
+		ProjectID:         projectID,
+		Type:              txType,
+		SourceWarehouseID: source,
+		DestWarehouseID:   dest,
+		Note:              note,
+		PerformedByID:     callerID,
+		CreatedAt:         time.Now(),
+	}
+	if err := tx.Create(&transaction).Error; err != nil {
+		return models.Transaction{}, err
+	}
+
+	for _, line := range items {
+		txItem := models.TransactionItem{
+			TransactionID: transaction.ID,
+			ItemID:        line.ItemID,
+			Quantity:      line.Quantity,
+		}
+		if err := tx.Create(&txItem).Error; err != nil {
+			return models.Transaction{}, err
+		}
+
+		if source != nil {
+			if err := adjustStock(tx, projectID, *source, line.ItemID, -line.Quantity); err != nil {
+				return models.Transaction{}, err
+			}
+		}
+		if dest != nil {
+			if err := adjustStock(tx, projectID, *dest, line.ItemID, line.Quantity); err != nil {
+				return models.Transaction{}, err
+			}
+		}
+	}
+
+	return transaction, nil
+}
+
+// createTransactionCore is the trusted entry point for a standalone
+// transaction: projectID always comes from the caller (either the request
+// body on Super Admin routes, or the middleware-validated path param on
+// Admin/Member routes) — never re-derived from anything inside req. Opens
+// its own DB transaction and delegates to createTransactionTx.
+func createTransactionCore(projectID, callerID uint, txType models.TransactionType, source, dest *uint, note string, items []TransactionItemRequest) (models.Transaction, error) {
 	var transaction models.Transaction
 
-	err = database.DB.Transaction(func(tx *gorm.DB) error {
-		if source != nil {
-			for _, line := range items {
-				var stock models.Stock
-				err := tx.Where("warehouse_id = ? AND item_id = ?", *source, line.ItemID).
-					First(&stock).Error
-				if err == gorm.ErrRecordNotFound || (err == nil && stock.Quantity < line.Quantity) {
-					return fmt.Errorf("stok tidak cukup untuk item ID %d", line.ItemID)
-				}
-				if err != nil {
-					return err
-				}
-			}
-		}
-
-		transaction = models.Transaction{
-			ProjectID:         projectID,
-			Type:              txType,
-			SourceWarehouseID: source,
-			DestWarehouseID:   dest,
-			Note:              note,
-			PerformedByID:     callerID,
-			CreatedAt:         time.Now(),
-		}
-		if err := tx.Create(&transaction).Error; err != nil {
-			return err
-		}
-
-		for _, line := range items {
-			txItem := models.TransactionItem{
-				TransactionID: transaction.ID,
-				ItemID:        line.ItemID,
-				Quantity:      line.Quantity,
-			}
-			if err := tx.Create(&txItem).Error; err != nil {
-				return err
-			}
-
-			if source != nil {
-				if err := adjustStock(tx, projectID, *source, line.ItemID, -line.Quantity); err != nil {
-					return err
-				}
-			}
-			if dest != nil {
-				if err := adjustStock(tx, projectID, *dest, line.ItemID, line.Quantity); err != nil {
-					return err
-				}
-			}
-		}
-
-		return nil
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		transaction, err = createTransactionTx(tx, projectID, callerID, txType, source, dest, note, items)
+		return err
 	})
 
 	if err != nil {
@@ -207,7 +218,7 @@ func ListTransactions(c *gin.Context) {
 		query = query.Where("created_at <= ?", to)
 	}
 
-	var transactions []models.Transaction
+	transactions := []models.Transaction{}
 	if err := query.Order("created_at desc").Find(&transactions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data transaksi"})
 		return

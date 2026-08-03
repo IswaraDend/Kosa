@@ -10,6 +10,7 @@ const TransaksiPage = () => {
       scopeMode="path"
       projectEndpoint="/member/projects"
       includeAllOption={false}
+      showProjectPicker={false}
       canCreate={permissions.includes('transaction.create')}
     />
   );

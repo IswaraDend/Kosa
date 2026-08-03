@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { api, ApiError, buildQuery } from '../../lib/api';
 import type { StockSummaryRow, TransactionReportRow } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
+import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
 import PageHeader from '../../components/PageHeader';
 import TableCard from '../../components/TableCard';
 import ProjectPicker from '../../components/ProjectPicker';
@@ -13,6 +14,7 @@ interface LaporanPageProps {
   scopeMode?: 'query' | 'path';
   projectEndpoint?: string;
   includeAllOption?: boolean;
+  showProjectPicker?: boolean;
 }
 
 const LaporanPage = ({
@@ -20,8 +22,10 @@ const LaporanPage = ({
   scopeMode = 'query',
   projectEndpoint = '/super-admin/projects',
   includeAllOption = true,
+  showProjectPicker = true,
 }: LaporanPageProps) => {
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
+  useProjectAutoSelect(projectEndpoint, !showProjectPicker);
   const [stockRows, setStockRows] = useState<StockSummaryRow[]>([]);
   const [movement, setMovement] = useState<TransactionReportRow[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
@@ -59,15 +63,17 @@ const LaporanPage = ({
     <div className="dashboard-content">
       <PageHeader title="Laporan" subtitle="Ringkasan stok dan pergerakan barang" />
 
-      <div className="form-group" style={{ maxWidth: 280 }}>
-        <label>Project</label>
-        <ProjectPicker
-          value={selectedProjectId}
-          onChange={setSelectedProjectId}
-          includeAllOption={includeAllOption}
-          endpoint={projectEndpoint}
-        />
-      </div>
+      {showProjectPicker && (
+        <div className="form-group" style={{ maxWidth: 280 }}>
+          <label>Project</label>
+          <ProjectPicker
+            value={selectedProjectId}
+            onChange={setSelectedProjectId}
+            includeAllOption={includeAllOption}
+            endpoint={projectEndpoint}
+          />
+        </div>
+      )}
 
       {errorMsg && (
         <div style={{ color: 'var(--danger)', marginBottom: '16px', fontSize: '14px' }}>{errorMsg}</div>

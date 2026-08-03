@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '../../lib/api';
 import type { MemberPermission, PermissionDef, UserListItem } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
+import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
 import PageHeader from '../../components/PageHeader';
 import TableCard from '../../components/TableCard';
-import ProjectPicker from '../../components/ProjectPicker';
 import '../Dashboard.css';
 
 const PermissionPage = () => {
-  const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
+  const { selectedProjectId } = useSelectedProject();
+  useProjectAutoSelect('/admin/projects', true);
   const [permissions, setPermissions] = useState<PermissionDef[]>([]);
   const [members, setMembers] = useState<UserListItem[]>([]);
   const [selectedUserRoleId, setSelectedUserRoleId] = useState<string>('');
@@ -91,16 +92,6 @@ const PermissionPage = () => {
   return (
     <div className="dashboard-content">
       <PageHeader title="Permission" subtitle="Atur hak akses member di project yang Anda kelola" />
-
-      <div className="form-group" style={{ maxWidth: 280 }}>
-        <label>Project</label>
-        <ProjectPicker
-          value={selectedProjectId}
-          onChange={setSelectedProjectId}
-          includeAllOption={false}
-          endpoint="/admin/projects"
-        />
-      </div>
 
       {errorMsg && (
         <div style={{ color: 'var(--danger)', marginBottom: '16px', fontSize: '14px' }}>{errorMsg}</div>

@@ -15,7 +15,7 @@ func ListRoles(c *gin.Context) {
 		query = query.Where("project_id = ?", *projectID)
 	}
 
-	var roles []models.Role
+	roles := []models.Role{}
 	if err := query.Find(&roles).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data role"})
 		return

@@ -10,7 +10,7 @@ import (
 )
 
 func listWarehousesByProject(projectID uint) ([]models.Warehouse, error) {
-	var warehouses []models.Warehouse
+	warehouses := []models.Warehouse{}
 	err := database.DB.Model(&models.Warehouse{}).
 		Where("project_id = ?", projectID).
 		Order("created_at desc").Find(&warehouses).Error
@@ -54,7 +54,7 @@ func ListWarehouses(c *gin.Context) {
 		query = query.Where("project_id = ?", *projectID)
 	}
 
-	var warehouses []models.Warehouse
+	warehouses := []models.Warehouse{}
 	if err := query.Order("created_at desc").Find(&warehouses).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data gudang"})
 		return

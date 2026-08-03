@@ -32,7 +32,7 @@ func stockSummaryQuery(projectID *uint) *gorm.DB {
 }
 
 func StockSummaryReport(c *gin.Context) {
-	var rows []StockSummaryRow
+	rows := []StockSummaryRow{}
 	if err := stockSummaryQuery(queryUintPtr(c, "project_id")).Order("items.name").Scan(&rows).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil laporan stok"})
 		return
@@ -42,7 +42,7 @@ func StockSummaryReport(c *gin.Context) {
 
 func StockSummaryReportForProject(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
-	var rows []StockSummaryRow
+	rows := []StockSummaryRow{}
 	if err := stockSummaryQuery(&projectID).Order("items.name").Scan(&rows).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil laporan stok"})
 		return
@@ -78,7 +78,7 @@ func transactionReportQuery(projectID *uint, txType, from, to string) *gorm.DB {
 }
 
 func TransactionReport(c *gin.Context) {
-	var rows []TransactionReportRow
+	rows := []TransactionReportRow{}
 	query := transactionReportQuery(queryUintPtr(c, "project_id"), c.Query("type"), c.Query("from"), c.Query("to"))
 	if err := query.Scan(&rows).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil laporan transaksi"})
@@ -89,7 +89,7 @@ func TransactionReport(c *gin.Context) {
 
 func TransactionReportForProject(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
-	var rows []TransactionReportRow
+	rows := []TransactionReportRow{}
 	query := transactionReportQuery(&projectID, c.Query("type"), c.Query("from"), c.Query("to"))
 	if err := query.Scan(&rows).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil laporan transaksi"})
