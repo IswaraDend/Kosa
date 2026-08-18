@@ -61,8 +61,10 @@ func createProductionCore(projectID, warehouseID, productID, callerID uint, quan
 	}
 
 	items := make([]TransactionItemRequest, 0, len(recipe))
+	hppPerUnit := 0.0
 	for _, r := range recipe {
 		items = append(items, TransactionItemRequest{ItemID: r.ItemID, Quantity: r.QuantityPerUnit * quantity})
+		hppPerUnit += r.QuantityPerUnit * r.Item.AverageCost
 	}
 
 	txNote := fmt.Sprintf("Produksi %s x%g", product.Name, quantity)
@@ -78,6 +80,10 @@ func createProductionCore(projectID, warehouseID, productID, callerID uint, quan
 			return err
 		}
 
+		if err := applyProductCostLayer(tx, productID, quantity, hppPerUnit); err != nil {
+			return err
+		}
+
 		if err := adjustProductStock(tx, projectID, warehouseID, productID, quantity); err != nil {
 			return err
 		}
@@ -87,6 +93,8 @@ func createProductionCore(projectID, warehouseID, productID, callerID uint, quan
 			WarehouseID:   warehouseID,
 			ProductID:     productID,
 			Quantity:      quantity,
+			HPPPerUnit:    hppPerUnit,
+			HPPTotal:      hppPerUnit * quantity,
 			Note:          note,
 			TransactionID: &txn.ID,
 			PerformedByID: callerID,
@@ -122,6 +130,31 @@ func adjustProductStock(tx *gorm.DB, projectID, warehouseID, productID uint, del
 	}
 
 	return tx.Save(&ps).Error
+}
+
+// applyProductCostLayer mirrors applyItemCostLayer's weighted-average formula,
+// but the "incoming" event for a Product is a Production run (or a costed
+// stock import) rather than a purchase transaction. Must be called BEFORE
+// the produced quantity is written to ProductStock, since it needs the
+// pre-event total quantity.
+func applyProductCostLayer(tx *gorm.DB, productID uint, incomingQty, unitCost float64) error {
+	var oldQty float64
+	if err := tx.Model(&models.ProductStock{}).Where("product_id = ?", productID).
+		Select("COALESCE(SUM(quantity), 0)").Scan(&oldQty).Error; err != nil {
+		return err
+	}
+
+	var product models.Product
+	if err := tx.First(&product, productID).Error; err != nil {
+		return err
+	}
+
+	newAvg := unitCost
+	if oldQty > 0 {
+		newAvg = (product.AverageCost*oldQty + unitCost*incomingQty) / (oldQty + incomingQty)
+	}
+
+	return tx.Model(&product).Update("average_cost", newAvg).Error
 }
 
 // ---- Super Admin routes (global, project_id trusted in body) ----

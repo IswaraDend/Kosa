@@ -1,0 +1,117 @@
+.invoice-print-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.invoice-print-toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  width: 100%;
+  max-width: 720px;
+}
+
+.invoice-print-area {
+  background: #ffffff;
+  color: #1a1a1a;
+  width: 100%;
+  max-width: 720px;
+  padding: 40px;
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+
+.invoice-print-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2px solid #1a1a1a;
+  padding-bottom: 16px;
+  margin-bottom: 24px;
+}
+
+.invoice-print-header h2 {
+  margin: 0;
+  letter-spacing: 2px;
+}
+
+.invoice-print-meta {
+  text-align: right;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.invoice-print-parties {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.invoice-print-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.invoice-print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.invoice-print-table th,
+.invoice-print-table td {
+  padding: 8px 6px;
+  text-align: left;
+  border-bottom: 1px solid #ddd;
+}
+
+.invoice-print-table th:not(:first-child),
+.invoice-print-table td:not(:first-child) {
+  text-align: right;
+}
+
+.invoice-print-table tfoot td {
+  border-bottom: none;
+  border-top: 2px solid #1a1a1a;
+  font-weight: 700;
+  padding-top: 10px;
+}
+
+.invoice-print-note {
+  margin-top: 24px;
+  font-size: 13px;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .invoice-print-area,
+  .invoice-print-area * {
+    visibility: visible;
+  }
+  .invoice-print-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    box-shadow: none;
+    border-radius: 0;
+  }
+  .invoice-print-toolbar {
+    display: none;
+  }
+}

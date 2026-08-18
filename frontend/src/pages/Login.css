@@ -10,38 +10,61 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  background: radial-gradient(circle at top left, #231d2c 0%, var(--bg-dark) 100%);
+  background: radial-gradient(circle at top left, #1c1f2c 0%, var(--bg-dark) 100%);
   border-right: 1px solid var(--border-subtle);
+  position: relative;
+  overflow: hidden;
+}
+
+.login-rings {
+  position: absolute;
+  top: 50%;
+  right: -12%;
+  transform: translateY(-50%);
+  width: 60vw;
+  max-width: 620px;
+  height: auto;
+  fill: none;
+  stroke: var(--brand-primary);
+  stroke-width: 1;
+  opacity: 0.12;
+  pointer-events: none;
 }
 
 .brand {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text-primary);
+  align-items: baseline;
+  gap: 10px;
+  position: relative;
+  z-index: 1;
 }
 
-.brand-icon {
-  width: 32px;
-  height: 32px;
-  background: linear-gradient(135deg, var(--brand-secondary) 0%, var(--brand-primary) 100%);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--bg-dark);
+.brand-mark {
+  font-family: var(--font-display);
+  font-size: 30px;
+  line-height: 1;
+  color: var(--brand-primary);
+}
+
+.brand-word {
+  font-family: var(--font-display);
+  font-size: 22px;
+  color: var(--text-primary);
 }
 
 .login-hero {
   max-width: 400px;
+  position: relative;
+  z-index: 1;
 }
 
 .login-hero h1 {
-  font-size: 42px;
-  line-height: 1.2;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 40px;
+  line-height: 1.25;
   margin-bottom: 24px;
+  color: var(--text-primary);
 }
 
 .login-hero p {
@@ -53,6 +76,8 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+  position: relative;
+  z-index: 1;
 }
 
 .feature-item {
@@ -97,8 +122,11 @@
 }
 
 .login-box h2 {
-  font-size: 32px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 30px;
   margin-bottom: 8px;
+  color: var(--text-primary);
 }
 
 .login-register-text {

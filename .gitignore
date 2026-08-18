@@ -23,8 +23,8 @@ frontend/coverage/
 # Binaries
 backend-go/main
 backend-go/main.exe
-backend-go/stockpulse
-backend-go/stockpulse.exe
+backend-go/kosa
+backend-go/kosa.exe
 
 # Build directory
 backend-go/bin/

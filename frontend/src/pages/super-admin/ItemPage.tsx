@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Package, Trash2, Pencil } from 'lucide-react';
+import { Plus, Package, Trash2, Pencil, UploadCloud } from 'lucide-react';
 import { api, ApiError, buildQuery } from '../../lib/api';
 import type { Item } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
@@ -10,6 +10,7 @@ import TableCard from '../../components/TableCard';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ProjectPicker from '../../components/ProjectPicker';
+import ImportModal from '../../components/ImportModal';
 import '../Dashboard.css';
 
 interface ItemFormState {
@@ -46,6 +47,7 @@ const ItemPage = ({
   const [form, setForm] = useState<ItemFormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<Item | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
   const listQuery = scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId }) : '';
@@ -117,10 +119,16 @@ const ItemPage = ({
         title="Item"
         subtitle="Kelola master data barang untuk project terpilih"
         actions={
-          <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
-            <Plus size={18} />
-            Tambah Item
-          </button>
+          <>
+            <button className="btn-secondary" onClick={() => setImportOpen(true)} disabled={selectedProjectId === 'all'}>
+              <UploadCloud size={18} />
+              Import Stok
+            </button>
+            <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
+              <Plus size={18} />
+              Tambah Item
+            </button>
+          </>
         }
       />
 
@@ -230,6 +238,16 @@ const ItemPage = ({
         confirmLabel="Hapus"
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(null)}
+      />
+
+      <ImportModal
+        isOpen={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import Stok Item"
+        endpoint={`${resourceBase}/imports/items/stock`}
+        projectId={scopeMode === 'query' ? selectedProjectId : undefined}
+        templateHint="Kolom: SKU | Gudang (kode) | Qty | Harga Beli per Unit. SKU dan Gudang harus sudah terdaftar di project ini. Harga beli boleh dikosongkan HANYA jika item sudah pernah punya harga sebelumnya."
+        onSuccess={loadItems}
       />
     </div>
   );

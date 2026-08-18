@@ -21,6 +21,7 @@ interface TxFormState {
   dest_warehouse_id: string;
   item_id: string;
   quantity: string;
+  unit_cost: string;
   note: string;
 }
 
@@ -30,6 +31,7 @@ const emptyForm: TxFormState = {
   dest_warehouse_id: '',
   item_id: '',
   quantity: '',
+  unit_cost: '',
   note: '',
 };
 
@@ -121,7 +123,13 @@ const TransaksiPage = ({
         source_warehouse_id: form.source_warehouse_id ? Number(form.source_warehouse_id) : undefined,
         dest_warehouse_id: form.dest_warehouse_id ? Number(form.dest_warehouse_id) : undefined,
         note: form.note,
-        items: [{ item_id: Number(form.item_id), quantity: Number(form.quantity) }],
+        items: [
+          {
+            item_id: Number(form.item_id),
+            quantity: Number(form.quantity),
+            unit_cost: form.type === 'in' ? Number(form.unit_cost) : undefined,
+          },
+        ],
       });
       setFormOpen(false);
       loadTransactions();
@@ -309,6 +317,21 @@ const TransaksiPage = ({
               onChange={(e) => setForm({ ...form, quantity: e.target.value })}
             />
           </div>
+
+          {form.type === 'in' && (
+            <div className="form-group">
+              <label>Harga Beli per Unit</label>
+              <input
+                type="number"
+                min="0.01"
+                step="any"
+                className="form-input"
+                placeholder="Harga beli satuan barang masuk"
+                value={form.unit_cost}
+                onChange={(e) => setForm({ ...form, unit_cost: e.target.value })}
+              />
+            </div>
+          )}
 
           <div className="form-group">
             <label>Catatan</label>

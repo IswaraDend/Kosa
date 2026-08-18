@@ -1,33 +1,47 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import './styles/fonts.css';
 
 :root {
-  --bg-color: #12101a;
-  --surface-color: #1a1727;
-  --surface-color-light: #211e33;
-  --primary: #c396ff;
-  --primary-gradient: linear-gradient(135deg, #dfa9ff 0%, #b885f8 100%);
-  --text-main: #f0f0f0;
-  --text-muted: #88869c;
-  --border-color: #312b4d;
-  
-  --success: #2ecc71;
-  --success-bg: rgba(46, 204, 113, 0.1);
-  --danger: #e74c3c;
+  /* Kośa — ink & brass. A treasury at lamplight: deep ink ground, warm
+     brass accent, five muted Pañca Kośa hues used only as small layer
+     markers (sidebar dots/labels), never as backgrounds. */
+  --bg-color: #12141c;
+  --surface-color: #1a1d29;
+  --surface-color-light: #20242f;
+  --primary: #c9973f;
+  --primary-gradient: linear-gradient(135deg, #e3b563 0%, #c9973f 100%);
+  --text-main: #ece7d8;
+  --text-muted: #a19c8c;
+  --border-color: #2c3040;
+
+  --success: #5fae7c;
+  --success-bg: rgba(95, 174, 124, 0.12);
+  --danger: #c1523f;
 
   /* Legacy variables for Login Page */
   --bg-dark: var(--bg-color);
   --bg-input: var(--surface-color);
   --text-primary: var(--text-main);
-  --text-secondary: #a09eb5;
-  --brand-primary: #b885f8;
-  --brand-secondary: #dfa9ff;
+  --text-secondary: var(--text-muted);
+  --brand-primary: var(--primary);
+  --brand-secondary: #e3b563;
   --border-subtle: var(--border-color);
+
+  /* Pañca Kośa — the five layers, outer to inner. See modules.ts LAYERS. */
+  --k-anna: #c17849;
+  --k-prana: #5b9a91;
+  --k-mano: #9482b8;
+  --k-vijnana: #b08a3e;
+  --k-ananda: #f0dfb4;
+
+  --font-display: 'Rozha One', Georgia, 'Times New Roman', serif;
+  --font-body: 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Cascadia Code', Consolas, monospace;
 }
 
 body {
   margin: 0;
   padding: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-body);
   background-color: var(--bg-color);
   color: var(--text-main);
   -webkit-font-smoothing: antialiased;

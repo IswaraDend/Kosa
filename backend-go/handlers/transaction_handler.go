@@ -15,6 +15,9 @@ import (
 type TransactionItemRequest struct {
 	ItemID   uint    `json:"item_id" binding:"required"`
 	Quantity float64 `json:"quantity" binding:"required,gt=0"`
+	// UnitCost is the purchase price per unit — required when the enclosing
+	// Transaction.Type is "in" (feeds Item.AverageCost), ignored otherwise.
+	UnitCost float64 `json:"unit_cost" binding:"omitempty,gte=0"`
 }
 
 type CreateTransactionRequest struct {
@@ -115,6 +118,14 @@ func createTransactionTx(tx *gorm.DB, projectID, callerID uint, txType models.Tr
 		}
 	}
 
+	if txType == models.TransactionIn {
+		for _, line := range items {
+			if line.UnitCost <= 0 {
+				return models.Transaction{}, fmt.Errorf("harga beli per unit wajib diisi untuk transaksi masuk (item ID %d)", line.ItemID)
+			}
+		}
+	}
+
 	transaction := models.Transaction{
 		ProjectID:         projectID,
 		Type:              txType,
@@ -133,9 +144,18 @@ func createTransactionTx(tx *gorm.DB, projectID, callerID uint, txType models.Tr
 			TransactionID: transaction.ID,
 			ItemID:        line.ItemID,
 			Quantity:      line.Quantity,
+			UnitCost:      line.UnitCost,
 		}
 		if err := tx.Create(&txItem).Error; err != nil {
 			return models.Transaction{}, err
+		}
+
+		// Cost layer must be applied BEFORE adjustStock changes the running
+		// quantity — the weighted-average formula needs the pre-transaction qty.
+		if txType == models.TransactionIn {
+			if err := applyItemCostLayer(tx, line.ItemID, line.Quantity, line.UnitCost); err != nil {
+				return models.Transaction{}, err
+			}
 		}
 
 		if source != nil {
@@ -194,6 +214,29 @@ func adjustStock(tx *gorm.DB, projectID, warehouseID, itemID uint, delta float64
 	}
 
 	return tx.Save(&stock).Error
+}
+
+// applyItemCostLayer recomputes Item.AverageCost using a project-wide weighted
+// average across all warehouses. Must be called BEFORE the incoming quantity
+// is written to Stock, since it needs the pre-transaction total quantity.
+func applyItemCostLayer(tx *gorm.DB, itemID uint, incomingQty, unitCost float64) error {
+	var oldQty float64
+	if err := tx.Model(&models.Stock{}).Where("item_id = ?", itemID).
+		Select("COALESCE(SUM(quantity), 0)").Scan(&oldQty).Error; err != nil {
+		return err
+	}
+
+	var item models.Item
+	if err := tx.First(&item, itemID).Error; err != nil {
+		return err
+	}
+
+	newAvg := unitCost
+	if oldQty > 0 {
+		newAvg = (item.AverageCost*oldQty + unitCost*incomingQty) / (oldQty + incomingQty)
+	}
+
+	return tx.Model(&item).Update("average_cost", newAvg).Error
 }
 
 // ---- Super Admin routes (global, project_id optional via query / trusted in body) ----

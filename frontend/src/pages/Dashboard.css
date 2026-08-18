@@ -10,10 +10,11 @@
 }
 
 .page-title h1 {
-  font-size: 24px;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 400;
   margin: 0 0 8px 0;
-  color: #fff;
+  color: var(--text-main);
 }
 
 .page-title p {
@@ -41,7 +42,7 @@
 .search-box input {
   background: transparent;
   border: none;
-  color: #fff;
+  color: var(--text-main);
   outline: none;
   margin-left: 8px;
   font-size: 14px;
@@ -62,7 +63,7 @@
 
 .btn-primary {
   background: var(--primary-gradient);
-  color: #12101a;
+  color: var(--bg-color);
   border: none;
   padding: 10px 20px;
   border-radius: 8px;
@@ -99,7 +100,7 @@
   top: -50px; right: -50px;
   width: 150px; height: 150px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(185,138,245,0.03) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(201,151,63,0.05) 0%, transparent 70%);
 }
 
 .stat-header {
@@ -119,7 +120,7 @@
 .stat-value {
   font-size: 32px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-main);
 }
 
 /* Table Card */
@@ -138,7 +139,7 @@
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-main);
 }
 
 table {
@@ -170,7 +171,7 @@ tr:last-child td {
 
 td:first-child {
   font-weight: 600;
-  color: #fff;
+  color: var(--text-main);
 }
 
 .badge {
@@ -192,13 +193,13 @@ td:first-child {
 }
 
 .badge.admin {
-  background: rgba(155, 89, 182, 0.15);
-  color: #c396ff;
+  background: rgba(148, 130, 184, 0.15);
+  color: var(--k-mano);
 }
 
 .badge.member {
-  background: rgba(52, 152, 219, 0.15);
-  color: #3498db;
+  background: rgba(91, 154, 145, 0.15);
+  color: var(--k-prana);
 }
 
 .badge.masuk {
@@ -220,7 +221,7 @@ td:first-child {
 .welcome-banner {
   border-radius: 16px;
   padding: 28px 32px;
-  color: #fff;
+  color: var(--text-main);
   margin-bottom: 24px;
 }
 
@@ -260,7 +261,7 @@ td:first-child {
 .card h3 {
   margin: 0 0 8px 0;
   font-size: 16px;
-  color: #fff;
+  color: var(--text-main);
 }
 
 .card.full-width {
@@ -281,7 +282,7 @@ td:first-child {
 .chart-title {
   font-size: 15px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-main);
 }
 
 .chart-subtitle {
@@ -335,7 +336,7 @@ td:first-child {
   display: flex;
   justify-content: space-between;
   font-size: 13px;
-  color: #fff;
+  color: var(--text-main);
   margin-bottom: 4px;
 }
 
@@ -416,4 +417,57 @@ td:first-child {
 
 .dropdown-item:hover {
   background: rgba(255, 255, 255, 0.06);
+}
+
+/* Module picker — Pañca Kośa bands (Kelola Project form) */
+.module-picker {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.module-band + .module-band {
+  border-top: 1px solid var(--border-color);
+}
+
+.module-band-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-color);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--band-c, var(--text-muted));
+}
+
+.module-band-head .deva {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.module-band-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding: 12px 14px 12px 30px;
+}
+
+.module-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.module-check.on {
+  color: var(--text-main);
+}
+
+.module-check input {
+  accent-color: var(--band-c, var(--primary));
 }

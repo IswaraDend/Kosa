@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Plus, PackagePlus, Trash2, Pencil, ListTree } from 'lucide-react';
+import { Plus, PackagePlus, Trash2, Pencil, ListTree, UploadCloud } from 'lucide-react';
 import { api, ApiError, buildQuery } from '../../lib/api';
+import { formatCurrency } from '../../lib/format';
 import type { Item, Product, ProductRecipeLine } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
@@ -10,15 +11,17 @@ import TableCard from '../../components/TableCard';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ProjectPicker from '../../components/ProjectPicker';
+import ImportModal from '../../components/ImportModal';
 import '../Dashboard.css';
 
 interface ProductFormState {
   sku: string;
   name: string;
   unit: string;
+  default_price: string;
 }
 
-const emptyForm: ProductFormState = { sku: '', name: '', unit: '' };
+const emptyForm: ProductFormState = { sku: '', name: '', unit: '', default_price: '' };
 
 interface ProductPageProps {
   apiBasePrefix?: string;
@@ -46,6 +49,7 @@ const ProductPage = ({
   const [form, setForm] = useState<ProductFormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const [recipeProduct, setRecipeProduct] = useState<Product | null>(null);
   const [recipe, setRecipe] = useState<ProductRecipeLine[]>([]);
@@ -83,7 +87,12 @@ const ProductPage = ({
 
   const openEditForm = (product: Product) => {
     setEditing(product);
-    setForm({ sku: product.sku, name: product.name, unit: product.unit });
+    setForm({
+      sku: product.sku,
+      name: product.name,
+      unit: product.unit,
+      default_price: product.default_price ? String(product.default_price) : '',
+    });
     setFormOpen(true);
   };
 
@@ -91,10 +100,11 @@ const ProductPage = ({
     setSaving(true);
     setErrorMsg('');
     try {
+      const payload = { ...form, default_price: form.default_price ? Number(form.default_price) : 0 };
       if (editing) {
-        await api.put(`${resourceBase}/products/${editing.id}`, form);
+        await api.put(`${resourceBase}/products/${editing.id}`, payload);
       } else {
-        await api.post(`${resourceBase}/products`, { ...form, project_id: Number(selectedProjectId) });
+        await api.post(`${resourceBase}/products`, { ...payload, project_id: Number(selectedProjectId) });
       }
       setFormOpen(false);
       loadProducts();
@@ -166,10 +176,16 @@ const ProductPage = ({
         title="Produk"
         subtitle="Kelola barang jadi beserta resep (BOM) bahan bakunya"
         actions={
-          <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
-            <Plus size={18} />
-            Tambah Produk
-          </button>
+          <>
+            <button className="btn-secondary" onClick={() => setImportOpen(true)} disabled={selectedProjectId === 'all'}>
+              <UploadCloud size={18} />
+              Import Stok
+            </button>
+            <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
+              <Plus size={18} />
+              Tambah Produk
+            </button>
+          </>
         }
       />
 
@@ -203,6 +219,8 @@ const ProductPage = ({
                 <th>SKU</th>
                 <th>NAMA PRODUK</th>
                 <th>SATUAN</th>
+                <th>HPP/UNIT</th>
+                <th>HARGA JUAL</th>
                 <th>DIBUAT</th>
                 <th></th>
               </tr>
@@ -214,6 +232,12 @@ const ProductPage = ({
                     <td style={{ color: 'var(--text-muted)' }}>{product.sku}</td>
                     <td>{product.name}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{product.unit}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>
+                      {product.average_cost ? formatCurrency(product.average_cost) : '-'}
+                    </td>
+                    <td style={{ color: 'var(--text-muted)' }}>
+                      {product.default_price ? formatCurrency(product.default_price) : '-'}
+                    </td>
                     <td style={{ color: 'var(--text-muted)' }}>
                       {new Date(product.created_at).toLocaleDateString('id-ID')}
                     </td>
@@ -275,6 +299,18 @@ const ProductPage = ({
             placeholder="pcs, box, paket, dst"
             value={form.unit}
             onChange={(e) => setForm({ ...form, unit: e.target.value })}
+          />
+        </div>
+        <div className="form-group">
+          <label>Harga Jual Default (opsional)</label>
+          <input
+            type="number"
+            min="0"
+            step="any"
+            className="form-input"
+            placeholder="Dipakai isi awal form Invoice, tetap bisa diubah"
+            value={form.default_price}
+            onChange={(e) => setForm({ ...form, default_price: e.target.value })}
           />
         </div>
       </Modal>
@@ -365,6 +401,16 @@ const ProductPage = ({
         confirmLabel="Hapus"
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(null)}
+      />
+
+      <ImportModal
+        isOpen={importOpen}
+        onClose={() => setImportOpen(false)}
+        title="Import Stok Produk"
+        endpoint={`${resourceBase}/imports/products/stock`}
+        projectId={scopeMode === 'query' ? selectedProjectId : undefined}
+        templateHint="Kolom: SKU | Gudang (kode) | Qty | HPP per Unit (opsional). SKU dan Gudang harus sudah terdaftar di project ini. HPP per unit boleh dikosongkan kalau hanya ingin koreksi jumlah stok."
+        onSuccess={loadProducts}
       />
     </div>
   );

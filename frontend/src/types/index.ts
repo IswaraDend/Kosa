@@ -19,6 +19,7 @@ export interface Project {
   admin_count: number;
   member_count: number;
   warehouse_count: number;
+  modules: string[];
 }
 
 export interface UserListItem {
@@ -71,6 +72,7 @@ export interface Item {
   sku: string;
   name: string;
   unit: string;
+  average_cost: number;
   created_at: string;
 }
 
@@ -79,6 +81,7 @@ export type TransactionType = 'in' | 'out' | 'transfer';
 export interface TransactionItemLine {
   item_id: number;
   quantity: number;
+  unit_cost?: number;
 }
 
 export interface TransactionRecord {
@@ -101,6 +104,9 @@ export interface SummaryData {
   total_warehouses: number;
   total_admins: number;
   total_members: number;
+  total_invoices: number;
+  total_revenue: number;
+  total_margin: number;
 }
 
 export interface StockSummaryRow {
@@ -118,12 +124,28 @@ export interface TransactionReportRow {
   total_qty: number;
 }
 
+export interface SalesSummaryRow {
+  period: string;
+  total_qty: number;
+  subtotal: number;
+  total_hpp: number;
+}
+
+export interface TopProductRow {
+  product_id: number;
+  product_name: string;
+  total_qty_sold: number;
+  total_revenue: number;
+}
+
 export interface Product {
   id: number;
   project_id: number;
   sku: string;
   name: string;
   unit: string;
+  average_cost: number;
+  default_price: number;
   created_at: string;
 }
 
@@ -147,12 +169,53 @@ export interface ProductStockRow {
   warehouse?: Warehouse;
 }
 
+export interface Customer {
+  id: number;
+  project_id: number;
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  created_at: string;
+}
+
+export type InvoiceStatus = 'unpaid' | 'paid' | 'cancelled';
+
+export interface InvoiceItemLine {
+  id: number;
+  invoice_id: number;
+  product_id: number;
+  quantity: number;
+  unit_price: number;
+  unit_cogs: number;
+  product?: Product;
+}
+
+export interface InvoiceRecord {
+  id: number;
+  project_id: number;
+  invoice_number: string;
+  customer_id: number;
+  warehouse_id: number;
+  status: InvoiceStatus;
+  subtotal: number;
+  total_hpp: number;
+  note: string;
+  performed_by: number;
+  created_at: string;
+  customer?: Customer;
+  warehouse?: Warehouse;
+  items: InvoiceItemLine[];
+}
+
 export interface ProductionRecord {
   id: number;
   project_id: number;
   warehouse_id: number;
   product_id: number;
   quantity: number;
+  hpp_per_unit: number;
+  hpp_total: number;
   note: string;
   transaction_id: number | null;
   performed_by: number;

@@ -1,4 +1,4 @@
-# Stockpulse 📈
+# Kosa 📈
 
 Aplikasi manajemen proyek, gudang, dan stok barang skala modern (Full-stack Monorepo).
 
@@ -16,9 +16,9 @@ Proyek ini mengadopsi arsitektur *Monorepo* yang terdiri dari tiga layanan utama
 Sebelum menjalankan aplikasi, pastikan Anda telah membuat *database* di PostgreSQL.
 
 1. Buka PostgreSQL (bisa melalui psql CLI atau pgAdmin).
-2. Buat *database* baru bernama `stockpulse`:
+2. Buat *database* baru bernama `kosa`:
    ```sql
-   CREATE DATABASE stockpulse;
+   CREATE DATABASE kosa;
    ```
 3. Konfigurasi kredensial *database* ada di dalam kode Go (secara _default_ menggunakan user: `[USERNAME]` dan password: `[PASSWORD]`). Anda bisa menyesuaikannya di file `backend-go/database/database.go`.
 4. *Tabel-tabel database akan otomatis dibuat (Auto Migrate) saat server Golang pertama kali dijalankan.*

@@ -7,11 +7,16 @@ import "time"
 // auto-created "out" Transaction that records the raw-material consumption
 // (its TransactionItem rows are the audit trail of what was consumed).
 type Production struct {
-	ID            uint      `gorm:"primaryKey" json:"id"`
-	ProjectID     uint      `json:"project_id"`
-	WarehouseID   uint      `json:"warehouse_id"`
-	ProductID     uint      `json:"product_id"`
-	Quantity      float64   `json:"quantity"`
+	ID          uint    `gorm:"primaryKey" json:"id"`
+	ProjectID   uint    `json:"project_id"`
+	WarehouseID uint    `json:"warehouse_id"`
+	ProductID   uint    `json:"product_id"`
+	Quantity    float64 `json:"quantity"`
+	// HPPPerUnit/HPPTotal snapshot the recipe's cost (recipe qty x
+	// Item.AverageCost) at the moment of production, so historical margin
+	// figures don't drift when AverageCost changes later.
+	HPPPerUnit    float64   `json:"hpp_per_unit"`
+	HPPTotal      float64   `json:"hpp_total"`
 	Note          string    `json:"note"`
 	TransactionID *uint     `json:"transaction_id"`
 	PerformedByID uint      `json:"performed_by"`

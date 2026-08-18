@@ -11,20 +11,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(
-  path: string,
-  options: { method?: string; body?: unknown } = {},
-): Promise<T> {
-  const token = localStorage.getItem('token');
-  const res = await fetch(`${API_URL}${path}`, {
-    method: options.method ?? 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
-
+async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const errorBody = await res.json().catch(() => null);
     throw new ApiError(errorBody?.error ?? res.statusText, res.status, errorBody);
@@ -46,6 +33,38 @@ async function request<T>(
   return body as T;
 }
 
+async function request<T>(
+  path: string,
+  options: { method?: string; body?: unknown } = {},
+): Promise<T> {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_URL}${path}`, {
+    method: options.method ?? 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+  });
+
+  return handleResponse<T>(res);
+}
+
+// upload sends multipart/form-data (e.g. a file input) — deliberately omits
+// Content-Type so the browser sets the multipart boundary itself.
+async function upload<T>(path: string, formData: FormData): Promise<T> {
+  const token = localStorage.getItem('token');
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
+
+  return handleResponse<T>(res);
+}
+
 export function buildQuery(params: Record<string, string | number | undefined | null>): string {
   const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '');
   if (entries.length === 0) return '';
@@ -59,4 +78,5 @@ export const api = {
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  upload: <T>(path: string, formData: FormData) => upload<T>(path, formData),
 };

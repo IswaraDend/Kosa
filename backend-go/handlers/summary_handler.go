@@ -28,12 +28,23 @@ func GetSummary(c *gin.Context) {
 		Distinct("user_roles.user_id").
 		Count(&totalMembers)
 
+	var totalInvoices int64
+	var totalRevenue, totalMargin float64
+	database.DB.Model(&models.Invoice{}).Count(&totalInvoices)
+	database.DB.Model(&models.Invoice{}).Where("status != ?", models.InvoiceCancelled).
+		Select("COALESCE(SUM(subtotal), 0)").Scan(&totalRevenue)
+	database.DB.Model(&models.Invoice{}).Where("status != ?", models.InvoiceCancelled).
+		Select("COALESCE(SUM(subtotal - total_hpp), 0)").Scan(&totalMargin)
+
 	c.JSON(http.StatusOK, gin.H{
 		"total_projects":   totalProjects,
 		"active_projects":  activeProjects,
 		"total_warehouses": totalWarehouses,
 		"total_admins":     totalAdmins,
 		"total_members":    totalMembers,
+		"total_invoices":   totalInvoices,
+		"total_revenue":    totalRevenue,
+		"total_margin":     totalMargin,
 	})
 }
 

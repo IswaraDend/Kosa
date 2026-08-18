@@ -19,7 +19,7 @@ func Connect() {
 	dsn := os.Getenv("DB_DSN")
 	if dsn == "" {
 		// Fallback for development if .env is missing
-		dsn = "host=localhost user=postgres password=password123 dbname=stockpulse port=5432 sslmode=disable TimeZone=UTC"
+		dsn = "host=localhost user=postgres password=password123 dbname=kosa port=5432 sslmode=disable TimeZone=UTC"
 	}
 
 	gormLogger := logger.New(
@@ -33,7 +33,7 @@ func Connect() {
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: gormLogger})
 	if err != nil {
-		log.Println("WARNING: Failed to connect to database. Pastikan PostgreSQL menyala dan database 'stockpulse' tersedia.", err)
+		log.Println("WARNING: Failed to connect to database. Pastikan PostgreSQL menyala dan database 'kosa' tersedia.", err)
 		return
 	}
 
@@ -57,6 +57,10 @@ func Connect() {
 		&models.Transaction{},
 		&models.TransactionItem{},
 		&models.Production{},
+		&models.Customer{},
+		&models.Invoice{},
+		&models.InvoiceItem{},
+		&models.ProjectModule{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed:", err)

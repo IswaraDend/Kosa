@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"backend-go/database"
 
@@ -93,6 +94,77 @@ func TransactionReportForProject(c *gin.Context) {
 	query := transactionReportQuery(&projectID, c.Query("type"), c.Query("from"), c.Query("to"))
 	if err := query.Scan(&rows).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil laporan transaksi"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": rows, "total": len(rows)})
+}
+
+// SalesSummaryRow/TopProductRow power the new Super Admin dashboard (Bagian D)
+// — both aggregate InvoiceItem, excluding cancelled invoices from revenue/margin.
+
+type SalesSummaryRow struct {
+	Period   string  `json:"period"`
+	TotalQty float64 `json:"total_qty"`
+	Subtotal float64 `json:"subtotal"`
+	TotalHPP float64 `json:"total_hpp"`
+}
+
+func SalesSummaryReport(c *gin.Context) {
+	query := database.DB.Table("invoice_items").
+		Select(`to_char(invoices.created_at, 'YYYY-MM') as period,
+			SUM(invoice_items.quantity) as total_qty,
+			SUM(invoice_items.quantity * invoice_items.unit_price) as subtotal,
+			SUM(invoice_items.quantity * invoice_items.unit_cogs) as total_hpp`).
+		Joins("JOIN invoices ON invoices.id = invoice_items.invoice_id").
+		Where("invoices.status != ?", "cancelled")
+
+	if projectID := queryUintPtr(c, "project_id"); projectID != nil {
+		query = query.Where("invoices.project_id = ?", *projectID)
+	}
+	if from := c.Query("from"); from != "" {
+		query = query.Where("invoices.created_at >= ?", from)
+	}
+	if to := c.Query("to"); to != "" {
+		query = query.Where("invoices.created_at <= ?", to)
+	}
+
+	rows := []SalesSummaryRow{}
+	if err := query.Group("period").Order("period").Scan(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil laporan penjualan"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": rows, "total": len(rows)})
+}
+
+type TopProductRow struct {
+	ProductID    uint    `json:"product_id"`
+	ProductName  string  `json:"product_name"`
+	TotalQtySold float64 `json:"total_qty_sold"`
+	TotalRevenue float64 `json:"total_revenue"`
+}
+
+func TopProductsReport(c *gin.Context) {
+	limit := 5
+	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 {
+		limit = l
+	}
+
+	query := database.DB.Table("invoice_items").
+		Select(`invoice_items.product_id, products.name as product_name,
+			SUM(invoice_items.quantity) as total_qty_sold,
+			SUM(invoice_items.quantity * invoice_items.unit_price) as total_revenue`).
+		Joins("JOIN invoices ON invoices.id = invoice_items.invoice_id").
+		Joins("JOIN products ON products.id = invoice_items.product_id").
+		Where("invoices.status != ?", "cancelled")
+
+	if projectID := queryUintPtr(c, "project_id"); projectID != nil {
+		query = query.Where("invoices.project_id = ?", *projectID)
+	}
+
+	rows := []TopProductRow{}
+	if err := query.Group("invoice_items.product_id, products.name").
+		Order("total_qty_sold DESC").Limit(limit).Scan(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil laporan produk terlaris"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": rows, "total": len(rows)})

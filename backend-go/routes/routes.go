@@ -3,8 +3,10 @@ package routes
 import (
 	"time"
 
+	"backend-go/config"
 	"backend-go/handlers"
 	"backend-go/middleware"
+	"backend-go/models"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -12,7 +14,7 @@ import (
 
 func RegisterRoutes(r *gin.Engine) {
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173"},
+		AllowOrigins:     config.AllowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -89,6 +91,22 @@ func RegisterRoutes(r *gin.Engine) {
 
 		superAdmin.GET("/reports/stock-summary", handlers.StockSummaryReport)
 		superAdmin.GET("/reports/transactions", handlers.TransactionReport)
+		superAdmin.GET("/reports/sales-summary", handlers.SalesSummaryReport)
+		superAdmin.GET("/reports/top-products", handlers.TopProductsReport)
+
+		superAdmin.POST("/imports/items/stock", handlers.ImportItemsStock)
+		superAdmin.POST("/imports/products/stock", handlers.ImportProductsStock)
+
+		superAdmin.GET("/customers", handlers.ListCustomers)
+		superAdmin.POST("/customers", handlers.CreateCustomer)
+		superAdmin.GET("/customers/:id", handlers.GetCustomer)
+		superAdmin.PUT("/customers/:id", handlers.UpdateCustomer)
+		superAdmin.DELETE("/customers/:id", handlers.DeleteCustomer)
+
+		superAdmin.GET("/invoices", handlers.ListInvoices)
+		superAdmin.POST("/invoices", handlers.CreateInvoice)
+		superAdmin.GET("/invoices/:id", handlers.GetInvoice)
+		superAdmin.PATCH("/invoices/:id/status", handlers.UpdateInvoiceStatus)
 	}
 
 	admin := r.Group("/admin")
@@ -111,39 +129,90 @@ func RegisterRoutes(r *gin.Engine) {
 			adminProject.POST("/user-roles/:userRoleId/permissions", handlers.GrantPermissionScoped)
 			adminProject.DELETE("/user-roles/:userRoleId/permissions/:permissionId", handlers.RevokePermissionScoped)
 
-			adminProject.GET("/warehouses", handlers.ListWarehousesForProject)
-			adminProject.POST("/warehouses", handlers.CreateWarehouseForProject)
-			adminProject.GET("/warehouses/:id", handlers.GetWarehouseForProject)
-			adminProject.PUT("/warehouses/:id", handlers.UpdateWarehouseForProject)
-			adminProject.DELETE("/warehouses/:id", handlers.DeleteWarehouseForProject)
+			// Below this point, every route belongs to one of the 8 toggleable
+			// business modules (see models.AllModules) and is gated by
+			// middleware.RequireModule — a project without that module enabled
+			// gets 403 regardless of the caller's RBAC role.
 
-			adminProject.GET("/items", handlers.ListItemsForProject)
-			adminProject.POST("/items", handlers.CreateItemForProject)
-			adminProject.GET("/items/:id", handlers.GetItemForProject)
-			adminProject.PUT("/items/:id", handlers.UpdateItemForProject)
-			adminProject.DELETE("/items/:id", handlers.DeleteItemForProject)
-			adminProject.GET("/items/:id/stock", handlers.GetItemStockForProject)
+			adminWarehouse := adminProject.Group("/warehouses")
+			adminWarehouse.Use(middleware.RequireModule(models.ModuleWarehouse))
+			{
+				adminWarehouse.GET("", handlers.ListWarehousesForProject)
+				adminWarehouse.POST("", handlers.CreateWarehouseForProject)
+				adminWarehouse.GET("/:id", handlers.GetWarehouseForProject)
+				adminWarehouse.PUT("/:id", handlers.UpdateWarehouseForProject)
+				adminWarehouse.DELETE("/:id", handlers.DeleteWarehouseForProject)
+			}
 
-			adminProject.GET("/products", handlers.ListProductsForProject)
-			adminProject.POST("/products", handlers.CreateProductForProject)
-			adminProject.GET("/products/:id", handlers.GetProductForProject)
-			adminProject.PUT("/products/:id", handlers.UpdateProductForProject)
-			adminProject.DELETE("/products/:id", handlers.DeleteProductForProject)
-			adminProject.GET("/products/:id/stock", handlers.GetProductStockForProject)
-			adminProject.GET("/products/:id/recipe", handlers.ListProductRecipeForProject)
-			adminProject.POST("/products/:id/recipe", handlers.AddProductRecipeForProject)
-			adminProject.DELETE("/products/:id/recipe/:recipeId", handlers.RemoveProductRecipeForProject)
+			adminItem := adminProject.Group("/items")
+			adminItem.Use(middleware.RequireModule(models.ModuleItem))
+			{
+				adminItem.GET("", handlers.ListItemsForProject)
+				adminItem.POST("", handlers.CreateItemForProject)
+				adminItem.GET("/:id", handlers.GetItemForProject)
+				adminItem.PUT("/:id", handlers.UpdateItemForProject)
+				adminItem.DELETE("/:id", handlers.DeleteItemForProject)
+				adminItem.GET("/:id/stock", handlers.GetItemStockForProject)
+			}
 
-			adminProject.GET("/transactions", handlers.ListTransactionsForProject)
-			adminProject.POST("/transactions", handlers.CreateTransactionForProject)
-			adminProject.GET("/transactions/:id", handlers.GetTransactionForProject)
+			adminProduct := adminProject.Group("/products")
+			adminProduct.Use(middleware.RequireModule(models.ModuleProduct))
+			{
+				adminProduct.GET("", handlers.ListProductsForProject)
+				adminProduct.POST("", handlers.CreateProductForProject)
+				adminProduct.GET("/:id", handlers.GetProductForProject)
+				adminProduct.PUT("/:id", handlers.UpdateProductForProject)
+				adminProduct.DELETE("/:id", handlers.DeleteProductForProject)
+				adminProduct.GET("/:id/stock", handlers.GetProductStockForProject)
+				adminProduct.GET("/:id/recipe", handlers.ListProductRecipeForProject)
+				adminProduct.POST("/:id/recipe", handlers.AddProductRecipeForProject)
+				adminProduct.DELETE("/:id/recipe/:recipeId", handlers.RemoveProductRecipeForProject)
+			}
 
-			adminProject.GET("/productions", handlers.ListProductionsForProject)
-			adminProject.POST("/productions", handlers.CreateProductionForProject)
-			adminProject.GET("/productions/:id", handlers.GetProductionForProject)
+			adminTransaction := adminProject.Group("/transactions")
+			adminTransaction.Use(middleware.RequireModule(models.ModuleTransaction))
+			{
+				adminTransaction.GET("", handlers.ListTransactionsForProject)
+				adminTransaction.POST("", handlers.CreateTransactionForProject)
+				adminTransaction.GET("/:id", handlers.GetTransactionForProject)
+			}
 
-			adminProject.GET("/reports/stock-summary", handlers.StockSummaryReportForProject)
-			adminProject.GET("/reports/transactions", handlers.TransactionReportForProject)
+			adminProduction := adminProject.Group("/productions")
+			adminProduction.Use(middleware.RequireModule(models.ModuleProduction))
+			{
+				adminProduction.GET("", handlers.ListProductionsForProject)
+				adminProduction.POST("", handlers.CreateProductionForProject)
+				adminProduction.GET("/:id", handlers.GetProductionForProject)
+			}
+
+			adminReport := adminProject.Group("/reports")
+			adminReport.Use(middleware.RequireModule(models.ModuleReport))
+			{
+				adminReport.GET("/stock-summary", handlers.StockSummaryReportForProject)
+				adminReport.GET("/transactions", handlers.TransactionReportForProject)
+			}
+
+			adminProject.POST("/imports/items/stock", middleware.RequireModule(models.ModuleItem), handlers.ImportItemsStockForProject)
+			adminProject.POST("/imports/products/stock", middleware.RequireModule(models.ModuleProduct), handlers.ImportProductsStockForProject)
+
+			adminCustomer := adminProject.Group("/customers")
+			adminCustomer.Use(middleware.RequireModule(models.ModuleCustomer))
+			{
+				adminCustomer.GET("", handlers.ListCustomersForProject)
+				adminCustomer.POST("", handlers.CreateCustomerForProject)
+				adminCustomer.GET("/:id", handlers.GetCustomerForProject)
+				adminCustomer.PUT("/:id", handlers.UpdateCustomerForProject)
+				adminCustomer.DELETE("/:id", handlers.DeleteCustomerForProject)
+			}
+
+			adminInvoice := adminProject.Group("/invoices")
+			adminInvoice.Use(middleware.RequireModule(models.ModuleInvoice))
+			{
+				adminInvoice.GET("", handlers.ListInvoicesForProject)
+				adminInvoice.POST("", handlers.CreateInvoiceForProject)
+				adminInvoice.GET("/:id", handlers.GetInvoiceForProject)
+				adminInvoice.PATCH("/:id/status", handlers.UpdateInvoiceStatusForProject)
+			}
 		}
 	}
 
@@ -157,18 +226,22 @@ func RegisterRoutes(r *gin.Engine) {
 			memberProject.GET("", middleware.RequireProjectRole("member"), handlers.GetMyProject)
 			memberProject.GET("/my-permissions", middleware.RequireProjectRole("member"), handlers.GetMyPermissions)
 
-			memberProject.GET("/warehouses", middleware.RequirePermission("warehouse.view"), handlers.ListWarehousesForProject)
-			memberProject.GET("/warehouses/:id", middleware.RequirePermission("warehouse.view"), handlers.GetWarehouseForProject)
+			// Every business route below requires BOTH the member's granted
+			// Permission AND the project's module being enabled (RequirePermission
+			// sets "projectID" in context, which RequireModule then reads).
 
-			memberProject.GET("/items", middleware.RequirePermission("item.view"), handlers.ListItemsForProject)
-			memberProject.GET("/items/:id/stock", middleware.RequirePermission("item.view"), handlers.GetItemStockForProject)
+			memberProject.GET("/warehouses", middleware.RequirePermission("warehouse.view"), middleware.RequireModule(models.ModuleWarehouse), handlers.ListWarehousesForProject)
+			memberProject.GET("/warehouses/:id", middleware.RequirePermission("warehouse.view"), middleware.RequireModule(models.ModuleWarehouse), handlers.GetWarehouseForProject)
 
-			memberProject.GET("/transactions", middleware.RequirePermission("transaction.view"), handlers.ListTransactionsForProject)
-			memberProject.GET("/transactions/:id", middleware.RequirePermission("transaction.view"), handlers.GetTransactionForProject)
-			memberProject.POST("/transactions", middleware.RequirePermission("transaction.create"), handlers.CreateTransactionForProject)
+			memberProject.GET("/items", middleware.RequirePermission("item.view"), middleware.RequireModule(models.ModuleItem), handlers.ListItemsForProject)
+			memberProject.GET("/items/:id/stock", middleware.RequirePermission("item.view"), middleware.RequireModule(models.ModuleItem), handlers.GetItemStockForProject)
 
-			memberProject.GET("/reports/stock-summary", middleware.RequirePermission("report.view"), handlers.StockSummaryReportForProject)
-			memberProject.GET("/reports/transactions", middleware.RequirePermission("report.view"), handlers.TransactionReportForProject)
+			memberProject.GET("/transactions", middleware.RequirePermission("transaction.view"), middleware.RequireModule(models.ModuleTransaction), handlers.ListTransactionsForProject)
+			memberProject.GET("/transactions/:id", middleware.RequirePermission("transaction.view"), middleware.RequireModule(models.ModuleTransaction), handlers.GetTransactionForProject)
+			memberProject.POST("/transactions", middleware.RequirePermission("transaction.create"), middleware.RequireModule(models.ModuleTransaction), handlers.CreateTransactionForProject)
+
+			memberProject.GET("/reports/stock-summary", middleware.RequirePermission("report.view"), middleware.RequireModule(models.ModuleReport), handlers.StockSummaryReportForProject)
+			memberProject.GET("/reports/transactions", middleware.RequirePermission("report.view"), middleware.RequireModule(models.ModuleReport), handlers.TransactionReportForProject)
 		}
 	}
 }

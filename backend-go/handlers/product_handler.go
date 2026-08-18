@@ -23,8 +23,8 @@ func getProductScoped(id, projectID uint) (models.Product, error) {
 	return product, err
 }
 
-func createProductCore(projectID uint, sku, name, unit string) (models.Product, error) {
-	product := models.Product{ProjectID: projectID, SKU: sku, Name: name, Unit: unit}
+func createProductCore(projectID uint, sku, name, unit string, defaultPrice float64) (models.Product, error) {
+	product := models.Product{ProjectID: projectID, SKU: sku, Name: name, Unit: unit, DefaultPrice: defaultPrice}
 	err := database.DB.Create(&product).Error
 	return product, err
 }
@@ -103,10 +103,11 @@ func GetProduct(c *gin.Context) {
 }
 
 type ProductRequest struct {
-	ProjectID uint   `json:"project_id" binding:"required"`
-	SKU       string `json:"sku" binding:"required"`
-	Name      string `json:"name" binding:"required"`
-	Unit      string `json:"unit" binding:"required"`
+	ProjectID    uint    `json:"project_id" binding:"required"`
+	SKU          string  `json:"sku" binding:"required"`
+	Name         string  `json:"name" binding:"required"`
+	Unit         string  `json:"unit" binding:"required"`
+	DefaultPrice float64 `json:"default_price" binding:"omitempty,gte=0"`
 }
 
 func CreateProduct(c *gin.Context) {
@@ -116,7 +117,7 @@ func CreateProduct(c *gin.Context) {
 		return
 	}
 
-	product, err := createProductCore(req.ProjectID, req.SKU, req.Name, req.Unit)
+	product, err := createProductCore(req.ProjectID, req.SKU, req.Name, req.Unit, req.DefaultPrice)
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Gagal membuat produk, SKU mungkin sudah dipakai di project ini"})
 		return
@@ -139,9 +140,10 @@ func UpdateProduct(c *gin.Context) {
 	}
 
 	var req struct {
-		SKU  string `json:"sku" binding:"required"`
-		Name string `json:"name" binding:"required"`
-		Unit string `json:"unit" binding:"required"`
+		SKU          string  `json:"sku" binding:"required"`
+		Name         string  `json:"name" binding:"required"`
+		Unit         string  `json:"unit" binding:"required"`
+		DefaultPrice float64 `json:"default_price" binding:"omitempty,gte=0"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "sku, name, dan unit wajib diisi"})
@@ -151,6 +153,7 @@ func UpdateProduct(c *gin.Context) {
 	product.SKU = req.SKU
 	product.Name = req.Name
 	product.Unit = req.Unit
+	product.DefaultPrice = req.DefaultPrice
 	if err := database.DB.Save(&product).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memperbarui produk"})
 		return
@@ -308,9 +311,10 @@ func GetProductForProject(c *gin.Context) {
 }
 
 type ProductFields struct {
-	SKU  string `json:"sku" binding:"required"`
-	Name string `json:"name" binding:"required"`
-	Unit string `json:"unit" binding:"required"`
+	SKU          string  `json:"sku" binding:"required"`
+	Name         string  `json:"name" binding:"required"`
+	Unit         string  `json:"unit" binding:"required"`
+	DefaultPrice float64 `json:"default_price" binding:"omitempty,gte=0"`
 }
 
 func CreateProductForProject(c *gin.Context) {
@@ -320,7 +324,7 @@ func CreateProductForProject(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "sku, name, dan unit wajib diisi"})
 		return
 	}
-	product, err := createProductCore(projectID, req.SKU, req.Name, req.Unit)
+	product, err := createProductCore(projectID, req.SKU, req.Name, req.Unit, req.DefaultPrice)
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Gagal membuat produk, SKU mungkin sudah dipakai di project ini"})
 		return
@@ -351,6 +355,7 @@ func UpdateProductForProject(c *gin.Context) {
 	product.SKU = req.SKU
 	product.Name = req.Name
 	product.Unit = req.Unit
+	product.DefaultPrice = req.DefaultPrice
 	if err := database.DB.Save(&product).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memperbarui produk"})
 		return

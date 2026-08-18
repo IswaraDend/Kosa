@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Plus, Folder, CheckCircle, Users, UserCog, MoreVertical } from 'lucide-react';
 import { api, ApiError } from '../../lib/api';
 import type { Project } from '../../types';
+import { MODULES, LAYERS, expandModules } from '../../lib/modules';
+import type { CSSProperties } from 'react';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import TableCard from '../../components/TableCard';
@@ -14,9 +16,10 @@ interface ProjectFormState {
   name: string;
   code: string;
   description: string;
+  modules: string[];
 }
 
-const emptyForm: ProjectFormState = { name: '', code: '', description: '' };
+const emptyForm: ProjectFormState = { name: '', code: '', description: '', modules: [] };
 
 const KelolaProjectPage = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -59,9 +62,20 @@ const KelolaProjectPage = () => {
 
   const openEditForm = (project: Project) => {
     setEditingProject(project);
-    setForm({ name: project.name, code: project.code, description: project.description });
+    setForm({
+      name: project.name,
+      code: project.code,
+      description: project.description,
+      modules: project.modules ?? [],
+    });
     setFormOpen(true);
     setMenuOpenId(null);
+  };
+
+  const toggleModule = (code: string) => {
+    const isEnabled = form.modules.includes(code);
+    const next = isEnabled ? form.modules.filter((m) => m !== code) : [...form.modules, code];
+    setForm({ ...form, modules: expandModules(next) });
   };
 
   const handleSubmit = async () => {
@@ -248,6 +262,35 @@ const KelolaProjectPage = () => {
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
           />
+        </div>
+        <div className="form-group">
+          <label>Fitur Aktif</label>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: '0 0 8px' }}>
+            Pilih fitur yang bisa dipakai Admin &amp; Member project ini. Fitur yang butuh fitur lain (mis. Invoice
+            butuh Produk &amp; Pelanggan) akan ikut tercentang otomatis.
+          </p>
+          <div className="module-picker">
+            {LAYERS.map((layer) => (
+              <div className="module-band" key={layer.code} style={{ '--band-c': `var(${layer.colorVar})` } as CSSProperties}>
+                <div className="module-band-head">
+                  {layer.name}
+                  <span className="deva">{layer.deva}</span>
+                </div>
+                <div className="module-band-body">
+                  {layer.modules.map((code) => {
+                    const m = MODULES.find((mod) => mod.code === code)!;
+                    const on = form.modules.includes(code);
+                    return (
+                      <label key={code} className={`module-check ${on ? 'on' : ''}`}>
+                        <input type="checkbox" checked={on} onChange={() => toggleModule(code)} />
+                        {m.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </Modal>
 

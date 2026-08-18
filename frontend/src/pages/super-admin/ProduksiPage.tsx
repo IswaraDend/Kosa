@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, Factory } from 'lucide-react';
 import { api, ApiError, buildQuery } from '../../lib/api';
+import { formatCurrency } from '../../lib/format';
 import type { Product, ProductRecipeLine, ProductionRecord, Warehouse } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
@@ -126,6 +127,10 @@ const ProduksiPage = ({
   };
 
   const quantity = Number(form.quantity) || 0;
+  const hppPerUnitPreview = recipePreview.reduce(
+    (sum, line) => sum + line.quantity_per_unit * (line.item?.average_cost || 0),
+    0,
+  );
 
   return (
     <div className="dashboard-content">
@@ -170,6 +175,7 @@ const ProduksiPage = ({
                 <th>PRODUK</th>
                 <th>GUDANG</th>
                 <th>QTY</th>
+                <th>HPP TOTAL</th>
                 <th>CATATAN</th>
                 <th>TANGGAL</th>
               </tr>
@@ -183,6 +189,7 @@ const ProduksiPage = ({
                     <td>
                       {p.quantity} {p.product?.unit ?? ''}
                     </td>
+                    <td style={{ color: 'var(--text-muted)' }}>{formatCurrency(p.hpp_total)}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{p.note || '-'}</td>
                     <td style={{ color: 'var(--text-muted)' }}>
                       {new Date(p.created_at).toLocaleString('id-ID')}
@@ -270,6 +277,22 @@ const ProduksiPage = ({
                   </span>
                 </div>
               ))}
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: 13,
+                marginTop: 8,
+                paddingTop: 8,
+                borderTop: '1px solid var(--border-color)',
+              }}
+            >
+              <span style={{ color: 'var(--text-muted)' }}>Estimasi HPP</span>
+              <strong>
+                {formatCurrency(hppPerUnitPreview)} / unit &times; {quantity} ={' '}
+                {formatCurrency(hppPerUnitPreview * quantity)}
+              </strong>
             </div>
           </div>
         )}

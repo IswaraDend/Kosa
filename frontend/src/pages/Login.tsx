@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
-import { Mail, Lock, Eye, Radio, Server, Warehouse, ArrowRightLeft, ArrowRight } from 'lucide-react';
+import { Mail, Lock, Eye, Server, Warehouse, ArrowRightLeft, ArrowRight } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import './Login.css';
 
@@ -55,13 +55,19 @@ const Login = () => {
   return (
     <div className="login-container">
       <div className="login-left">
+        <svg className="login-rings" viewBox="0 0 520 520" aria-hidden="true">
+          <circle cx="260" cy="260" r="230" />
+          <circle cx="260" cy="260" r="185" />
+          <circle cx="260" cy="260" r="140" />
+          <circle cx="260" cy="260" r="95" />
+          <circle cx="260" cy="260" r="50" />
+        </svg>
+
         <div className="brand">
-          <div className="brand-icon">
-            <Radio size={20} />
-          </div>
-          Stockpulse
+          <span className="brand-mark">कोष</span>
+          <span className="brand-word">Kośa</span>
         </div>
-        
+
         <div className="login-hero">
           <h1>Satu dashboard untuk stok semua project-mu.</h1>
           <p>Masuk untuk memantau stok, gudang, dan transaksi secara real-time dari mana saja.</p>
@@ -160,7 +166,7 @@ const Login = () => {
           </div>
           
           <p className="terms-text">
-            Dengan masuk, kamu menyetujui Ketentuan Layanan dan Kebijakan Privasi Stockpulse.
+            Dengan masuk, kamu menyetujui Ketentuan Layanan dan Kebijakan Privasi Kosa.
           </p>
         </div>
       </div>

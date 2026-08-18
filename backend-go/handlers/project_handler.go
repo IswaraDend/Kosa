@@ -8,6 +8,7 @@ import (
 	"backend-go/models"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type ProjectResponse struct {
@@ -22,6 +23,7 @@ type ProjectResponse struct {
 	AdminCount     int64     `json:"admin_count"`
 	MemberCount    int64     `json:"member_count"`
 	WarehouseCount int64     `json:"warehouse_count"`
+	Modules        []string  `json:"modules"`
 }
 
 func buildProjectResponse(p models.Project) ProjectResponse {
@@ -59,7 +61,45 @@ func buildProjectResponse(p models.Project) ProjectResponse {
 		resp.AdminName = adminUser.Name
 	}
 
+	resp.Modules = getProjectModules(p.ID)
+
 	return resp
+}
+
+func getProjectModules(projectID uint) []string {
+	var rows []models.ProjectModule
+	database.DB.Where("project_id = ?", projectID).Find(&rows)
+	modules := make([]string, 0, len(rows))
+	for _, r := range rows {
+		modules = append(modules, r.Module)
+	}
+	return modules
+}
+
+// setProjectModules replaces the full set of enabled modules for a project:
+// expands requested modules to include their dependencies (see
+// models.ExpandModules), then deletes and re-inserts the ProjectModule rows
+// in one DB transaction so a partial write can never leave a stale mix.
+func setProjectModules(projectID uint, requested []string) error {
+	valid := make([]string, 0, len(requested))
+	for _, m := range requested {
+		if models.IsValidModule(m) {
+			valid = append(valid, m)
+		}
+	}
+	expanded := models.ExpandModules(valid)
+
+	return database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("project_id = ?", projectID).Delete(&models.ProjectModule{}).Error; err != nil {
+			return err
+		}
+		for _, m := range expanded {
+			if err := tx.Create(&models.ProjectModule{ProjectID: projectID, Module: m}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func ListProjects(c *gin.Context) {
@@ -94,9 +134,10 @@ func GetProject(c *gin.Context) {
 }
 
 type ProjectRequest struct {
-	Name        string `json:"name" binding:"required"`
-	Code        string `json:"code" binding:"required"`
-	Description string `json:"description"`
+	Name        string   `json:"name" binding:"required"`
+	Code        string   `json:"code" binding:"required"`
+	Description string   `json:"description"`
+	Modules     []string `json:"modules"`
 }
 
 func CreateProject(c *gin.Context) {
@@ -116,6 +157,11 @@ func CreateProject(c *gin.Context) {
 
 	if err := database.DB.Create(&project).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat project"})
+		return
+	}
+
+	if err := setProjectModules(project.ID, req.Modules); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan modul project"})
 		return
 	}
 
@@ -147,6 +193,11 @@ func UpdateProject(c *gin.Context) {
 
 	if err := database.DB.Save(&project).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memperbarui project"})
+		return
+	}
+
+	if err := setProjectModules(project.ID, req.Modules); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal menyimpan modul project"})
 		return
 	}
 
