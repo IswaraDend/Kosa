@@ -20,9 +20,10 @@ interface ProjectFormState {
   code: string;
   description: string;
   modules: string[];
+  public_prices: boolean;
 }
 
-const emptyForm: ProjectFormState = { name: '', code: '', description: '', modules: [] };
+const emptyForm: ProjectFormState = { name: '', code: '', description: '', modules: [], public_prices: false };
 
 const KelolaProjectPage = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -85,6 +86,7 @@ const KelolaProjectPage = () => {
       code: project.code,
       description: project.description,
       modules: project.modules ?? [],
+      public_prices: project.public_prices ?? false,
     });
     setFormOpen(true);
     setMenuOpenId(null);
@@ -286,6 +288,24 @@ const KelolaProjectPage = () => {
             onChange={(e) => setForm({ ...form, description: e.target.value })}
           />
         </div>
+        <div className="form-group">
+          <label className="permission-item" style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <input
+              type="checkbox"
+              checked={form.public_prices}
+              onChange={(e) => setForm({ ...form, public_prices: e.target.checked })}
+            />
+            <span>
+              Publikasikan daftar harga
+              <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 12, marginTop: 2 }}>
+                Membuka endpoint <code>/public/projects/{form.code || 'kode'}/prices</code> tanpa login, berisi SKU,
+                nama, satuan, dan harga jual. HPP dan margin tidak ikut. Biarkan mati kalau katalog project ini
+                tidak untuk dilihat publik.
+              </span>
+            </span>
+          </label>
+        </div>
+
         <div className="form-group">
           <label>Fitur Aktif</label>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: '0 0 8px' }}>

@@ -19,6 +19,7 @@ type ProjectResponse struct {
 	Status         string    `json:"status"`
 	CreatedBy      uint      `json:"created_by"`
 	CreatedAt      time.Time `json:"created_at"`
+	PublicPrices   bool      `json:"public_prices"`
 	AdminName      string    `json:"admin_name"`
 	AdminCount     int64     `json:"admin_count"`
 	MemberCount    int64     `json:"member_count"`
@@ -28,13 +29,14 @@ type ProjectResponse struct {
 
 func buildProjectResponse(p models.Project) ProjectResponse {
 	resp := ProjectResponse{
-		ID:          p.ID,
-		Name:        p.Name,
-		Code:        p.Code,
-		Description: p.Description,
-		Status:      p.Status,
-		CreatedBy:   p.AuthorID,
-		CreatedAt:   p.CreatedAt,
+		ID:           p.ID,
+		Name:         p.Name,
+		Code:         p.Code,
+		Description:  p.Description,
+		Status:       p.Status,
+		CreatedBy:    p.AuthorID,
+		CreatedAt:    p.CreatedAt,
+		PublicPrices: p.PublicPrices,
 	}
 
 	database.DB.Model(&models.UserRole{}).
@@ -168,10 +170,11 @@ func GetProject(c *gin.Context) {
 }
 
 type ProjectRequest struct {
-	Name        string   `json:"name" binding:"required"`
-	Code        string   `json:"code" binding:"required"`
-	Description string   `json:"description"`
-	Modules     []string `json:"modules"`
+	Name         string   `json:"name" binding:"required"`
+	Code         string   `json:"code" binding:"required"`
+	Description  string   `json:"description"`
+	Modules      []string `json:"modules"`
+	PublicPrices bool     `json:"public_prices"`
 }
 
 func CreateProject(c *gin.Context) {
@@ -182,11 +185,12 @@ func CreateProject(c *gin.Context) {
 	}
 
 	project := models.Project{
-		Name:        req.Name,
-		Code:        req.Code,
-		Description: req.Description,
-		Status:      "aktif",
-		AuthorID:    currentUserID(c),
+		Name:         req.Name,
+		Code:         req.Code,
+		Description:  req.Description,
+		Status:       "aktif",
+		AuthorID:     currentUserID(c),
+		PublicPrices: req.PublicPrices,
 	}
 
 	if err := database.DB.Create(&project).Error; err != nil {
@@ -224,6 +228,7 @@ func UpdateProject(c *gin.Context) {
 	project.Name = req.Name
 	project.Code = req.Code
 	project.Description = req.Description
+	project.PublicPrices = req.PublicPrices
 
 	if err := database.DB.Save(&project).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal memperbarui project"})

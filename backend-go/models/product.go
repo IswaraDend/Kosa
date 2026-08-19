@@ -15,6 +15,10 @@ type Product struct {
 	// source of truth for what a line actually sold for.
 	DefaultPrice float64   `gorm:"default:0" json:"default_price"`
 	CreatedAt    time.Time `json:"created_at"`
+	// Maintained by GORM on every save. Without it there is no way to answer
+	// "harga per tanggal berapa" — the published price list needs a date, and
+	// CreatedAt would freeze at the day the product was first entered.
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Relationships
 	Project Project `gorm:"foreignKey:ProjectID;references:ID" json:"-"`

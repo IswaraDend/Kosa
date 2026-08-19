@@ -20,6 +20,7 @@ export interface Project {
   member_count: number;
   warehouse_count: number;
   modules: string[];
+  public_prices: boolean;
 }
 
 export interface UserListItem {

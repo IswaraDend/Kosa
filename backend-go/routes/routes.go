@@ -25,6 +25,12 @@ func RegisterRoutes(r *gin.Engine) {
 	r.GET("/ping", handlers.Ping)
 	r.POST("/login", handlers.Login)
 
+	// Public read-only price list. No auth by design — it is meant to be read
+	// by a storefront. Only projects that switched PublicPrices on are served,
+	// and the CORS allow-list still decides which browser origins may call it,
+	// so add the storefront's origin to CORS_ORIGINS.
+	r.GET("/public/projects/:code/prices", handlers.PublicPriceList)
+
 	superAdmin := r.Group("/super-admin")
 	superAdmin.Use(middleware.AuthMiddleware(), middleware.RequireSuperAdmin())
 	{

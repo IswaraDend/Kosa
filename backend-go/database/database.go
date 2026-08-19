@@ -66,6 +66,14 @@ func Connect() {
 		log.Fatal("Migration failed:", err)
 	}
 
+	// AutoMigrate adds products.updated_at as NULL for rows that existed before
+	// the column did, which would publish an empty date on the price list.
+	// Seeding it from created_at is the closest true answer: that is the last
+	// time those rows were written.
+	if err := DB.Exec("UPDATE products SET updated_at = created_at WHERE updated_at IS NULL").Error; err != nil {
+		log.Println("WARNING: gagal mengisi products.updated_at:", err)
+	}
+
 	SeedData()
 }
 
