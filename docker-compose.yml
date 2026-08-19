@@ -1,0 +1,67 @@
+# Kosa — satu tumpukan: Postgres + API Go + SPA di balik nginx.
+#
+# Hanya service `web` yang membuka port ke host. Postgres dan backend hanya
+# dapat dijangkau dari dalam jaringan compose, jadi API tidak bisa diakses
+# langsung dari internet dan database tidak terekspos sama sekali.
+#
+# Salin .env.example menjadi .env lalu isi nilainya sebelum `docker compose up`.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kosa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD wajib diisi di .env}
+      POSTGRES_DB: ${POSTGRES_DB:-kosa}
+    volumes:
+      # Satu-satunya bagian yang menyimpan state. Menghapus volume ini
+      # menghapus seluruh data — backup lewat pg_dump, bukan dengan menyalin
+      # direktori ini saat container berjalan.
+      - kosa-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-kosa} -d ${POSTGRES_DB:-kosa}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build: ./backend-go
+    restart: unless-stopped
+    depends_on:
+      db:
+        # Backend menjalankan AutoMigrate saat boot, jadi ia harus menunggu
+        # Postgres benar-benar siap menerima koneksi — bukan sekadar hidup.
+        condition: service_healthy
+    environment:
+      # sslmode=disable aman di sini: lalu lintas tidak pernah keluar dari
+      # jaringan bridge Docker. Ganti menjadi require kalau suatu saat pindah
+      # ke Postgres terkelola di luar host ini.
+      DB_DSN: host=db user=${POSTGRES_USER:-kosa} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB:-kosa} port=5432 sslmode=disable TimeZone=UTC
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET wajib diisi di .env}
+      GIN_MODE: release
+      # Hanya dipakai saat tabel users masih kosong, untuk akun login pertama.
+      SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL:?SEED_SUPERADMIN_EMAIL wajib diisi di .env}
+      SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD:?SEED_SUPERADMIN_PASSWORD wajib diisi di .env}
+      # Backend hanya dihubungi oleh nginx di jaringan bridge Docker.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
+      # Tidak terpakai selama frontend dan API satu origin, tapi tetap diisi
+      # supaya benar kalau suatu saat API dibuka langsung.
+      CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # Nilai ini dipanggang ke dalam bundle saat build. Mengubahnya butuh
+        # `docker compose build web`, bukan sekadar restart.
+        VITE_API_URL: /api
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '${PUBLIC_PORT:-8080}:80'
+
+volumes:
+  kosa-db:

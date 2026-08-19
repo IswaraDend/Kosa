@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
+import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
+import { useDebounced } from '../../hooks/useDebounced';
 import { Plus, Trash2 } from 'lucide-react';
-import { api, ApiError } from '../../lib/api';
+import { api, ApiError, buildQuery, type PaginatedResponse } from '../../lib/api';
 import type { UserListItem } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
 import PageHeader from '../../components/PageHeader';
 import TableCard from '../../components/TableCard';
+import Pagination from '../../components/Pagination';
 import Badge from '../../components/Badge';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -26,6 +29,8 @@ const MembersPage = () => {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounced(search);
+  const { page, setPage, meta, setMeta } = usePagination(`${selectedProjectId}|${debouncedSearch}`);
 
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<MemberFormState>(emptyForm);
@@ -40,8 +45,13 @@ const MembersPage = () => {
     }
     setLoading(true);
     api
-      .get<{ data: UserListItem[] }>(`/admin/projects/${selectedProjectId}/members`)
-      .then((res) => setMembers(res.data))
+      .get<PaginatedResponse<UserListItem>>(
+        `/admin/projects/${selectedProjectId}/members${buildQuery({ q: debouncedSearch, page, per_page: PER_PAGE })}`,
+      )
+      .then((res) => {
+        setMembers(res.data);
+        setMeta(metaFrom(res));
+      })
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat data member'))
       .finally(() => setLoading(false));
   };
@@ -49,11 +59,9 @@ const MembersPage = () => {
   useEffect(() => {
     loadMembers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId]);
+  }, [selectedProjectId, debouncedSearch, page]);
 
-  const filtered = members.filter(
-    (m) => m.name.toLowerCase().includes(search.toLowerCase()) || m.email.toLowerCase().includes(search.toLowerCase()),
-  );
+
 
   const openCreateForm = () => {
     setForm(emptyForm);
@@ -106,7 +114,7 @@ const MembersPage = () => {
         <div style={{ color: 'var(--danger)', marginBottom: '16px', fontSize: '14px' }}>{errorMsg}</div>
       )}
 
-      <TableCard title="Daftar Member" count={filtered.length}>
+      <TableCard title="Daftar Member" count={meta.total}>
         <thead>
           <tr>
             <th>NAMA</th>
@@ -118,7 +126,7 @@ const MembersPage = () => {
         </thead>
         <tbody>
           {!loading &&
-            filtered.map((m) => (
+            members.map((m) => (
               <tr key={m.user_role_id}>
                 <td>{m.name}</td>
                 <td style={{ color: 'var(--text-muted)' }}>{m.email}</td>
@@ -142,6 +150,8 @@ const MembersPage = () => {
             ))}
         </tbody>
       </TableCard>
+
+      <Pagination page={page} meta={meta} onChange={setPage} label="member" />
 
       <Modal
         isOpen={formOpen}

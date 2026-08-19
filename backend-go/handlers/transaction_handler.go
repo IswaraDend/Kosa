@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type TransactionItemRequest struct {
@@ -40,7 +41,7 @@ type CreateTransactionFields struct {
 	Items             []TransactionItemRequest `json:"items" binding:"required,min=1,dive"`
 }
 
-func listTransactionsByProject(projectID uint, warehouseID *uint, txType, from, to string) ([]models.Transaction, error) {
+func listTransactionsByProject(projectID uint, warehouseID *uint, txType, from, to string, page Pagination) ([]models.Transaction, int64, error) {
 	query := database.DB.Model(&models.Transaction{}).Preload("Items.Item").
 		Preload("SourceWarehouse").Preload("DestWarehouse").
 		Where("project_id = ?", projectID)
@@ -51,16 +52,11 @@ func listTransactionsByProject(projectID uint, warehouseID *uint, txType, from, 
 	if txType != "" {
 		query = query.Where("type = ?", txType)
 	}
-	if from != "" {
-		query = query.Where("created_at >= ?", from)
-	}
-	if to != "" {
-		query = query.Where("created_at <= ?", to)
-	}
+	query = applyCreatedAtRange(query, "created_at", from, to)
 
 	transactions := []models.Transaction{}
-	err := query.Order("created_at desc").Find(&transactions).Error
-	return transactions, err
+	total, err := paginate(query.Order("created_at desc"), page, &transactions)
+	return transactions, total, err
 }
 
 func getTransactionScoped(id, projectID uint) (models.Transaction, error) {
@@ -107,7 +103,12 @@ func createTransactionTx(tx *gorm.DB, projectID, callerID uint, txType models.Tr
 	if source != nil {
 		for _, line := range items {
 			var stock models.Stock
-			err := tx.Where("warehouse_id = ? AND item_id = ?", *source, line.ItemID).
+			// SELECT ... FOR UPDATE: hold the row until this transaction commits.
+			// Without the lock two concurrent "out" transactions both read the
+			// same sufficient quantity, both pass this check, and the item is
+			// oversold.
+			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("warehouse_id = ? AND item_id = ?", *source, line.ItemID).
 				First(&stock).Error
 			if err == gorm.ErrRecordNotFound || (err == nil && stock.Quantity < line.Quantity) {
 				return models.Transaction{}, fmt.Errorf("stok tidak cukup untuk item ID %d", line.ItemID)
@@ -197,7 +198,11 @@ func createTransactionCore(projectID, callerID uint, txType models.TransactionTy
 
 func adjustStock(tx *gorm.DB, projectID, warehouseID, itemID uint, delta float64) error {
 	var stock models.Stock
-	err := tx.Where("warehouse_id = ? AND item_id = ?", warehouseID, itemID).First(&stock).Error
+	// Read-modify-write on a running balance, so the row stays locked for the
+	// rest of the transaction — otherwise two concurrent adjustments both read
+	// the old quantity and the second Save silently discards the first.
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("warehouse_id = ? AND item_id = ?", warehouseID, itemID).First(&stock).Error
 
 	if err == gorm.ErrRecordNotFound {
 		stock = models.Stock{ProjectID: projectID, WarehouseID: warehouseID, ItemID: itemID, Quantity: 0}
@@ -220,14 +225,18 @@ func adjustStock(tx *gorm.DB, projectID, warehouseID, itemID uint, delta float64
 // average across all warehouses. Must be called BEFORE the incoming quantity
 // is written to Stock, since it needs the pre-transaction total quantity.
 func applyItemCostLayer(tx *gorm.DB, itemID uint, incomingQty, unitCost float64) error {
-	var oldQty float64
-	if err := tx.Model(&models.Stock{}).Where("item_id = ?", itemID).
-		Select("COALESCE(SUM(quantity), 0)").Scan(&oldQty).Error; err != nil {
+	// Lock the item BEFORE reading quantities. An "in" transaction takes no
+	// stock-row lock (there is nothing to deduct), so this row is what
+	// serialises two concurrent purchases of the same item; taking it first
+	// also means the SUM below cannot shift under us mid-calculation.
+	var item models.Item
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&item, itemID).Error; err != nil {
 		return err
 	}
 
-	var item models.Item
-	if err := tx.First(&item, itemID).Error; err != nil {
+	var oldQty float64
+	if err := tx.Model(&models.Stock{}).Where("item_id = ?", itemID).
+		Select("COALESCE(SUM(quantity), 0)").Scan(&oldQty).Error; err != nil {
 		return err
 	}
 
@@ -242,6 +251,7 @@ func applyItemCostLayer(tx *gorm.DB, itemID uint, incomingQty, unitCost float64)
 // ---- Super Admin routes (global, project_id optional via query / trusted in body) ----
 
 func ListTransactions(c *gin.Context) {
+	page := paginationFrom(c)
 	query := database.DB.Model(&models.Transaction{}).Preload("Items.Item").
 		Preload("SourceWarehouse").Preload("DestWarehouse")
 
@@ -254,20 +264,16 @@ func ListTransactions(c *gin.Context) {
 	if txType := c.Query("type"); txType != "" {
 		query = query.Where("type = ?", txType)
 	}
-	if from := c.Query("from"); from != "" {
-		query = query.Where("created_at >= ?", from)
-	}
-	if to := c.Query("to"); to != "" {
-		query = query.Where("created_at <= ?", to)
-	}
+	query = applyCreatedAtRange(query, "created_at", c.Query("from"), c.Query("to"))
 
 	transactions := []models.Transaction{}
-	if err := query.Order("created_at desc").Find(&transactions).Error; err != nil {
+	total, err := paginate(query.Order("created_at desc"), page, &transactions)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data transaksi"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": transactions, "total": len(transactions)})
+	c.JSON(http.StatusOK, listResponse(transactions, total, page))
 }
 
 func GetTransaction(c *gin.Context) {
@@ -307,12 +313,13 @@ func CreateTransaction(c *gin.Context) {
 
 func ListTransactionsForProject(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
-	transactions, err := listTransactionsByProject(projectID, queryUintPtr(c, "warehouse_id"), c.Query("type"), c.Query("from"), c.Query("to"))
+	page := paginationFrom(c)
+	transactions, total, err := listTransactionsByProject(projectID, queryUintPtr(c, "warehouse_id"), c.Query("type"), c.Query("from"), c.Query("to"), page)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data transaksi"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": transactions, "total": len(transactions)})
+	c.JSON(http.StatusOK, listResponse(transactions, total, page))
 }
 
 func GetTransactionForProject(c *gin.Context) {

@@ -25,6 +25,7 @@ type UserListItem struct {
 }
 
 func ListUsers(c *gin.Context) {
+	page := paginationFrom(c)
 	query := database.DB.Table("user_roles").
 		Select(`users.id, users.name, users.email, users.is_super_admin,
 			user_roles.id as user_role_id, roles.name as role,
@@ -39,14 +40,18 @@ func ListUsers(c *gin.Context) {
 	if role := c.Query("role"); role != "" {
 		query = query.Where("roles.name = ?", role)
 	}
+	if term := searchTerm(c); term != "" {
+		query = query.Where("LOWER(users.name) LIKE ? OR LOWER(users.email) LIKE ?", term, term)
+	}
 
 	data := []UserListItem{}
-	if err := query.Order("users.created_at desc").Scan(&data).Error; err != nil {
+	total, err := paginateScan(query.Order("users.created_at desc"), page, &data)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data user"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": data, "total": len(data)})
+	c.JSON(http.StatusOK, listResponse(data, total, page))
 }
 
 func GetUser(c *gin.Context) {
@@ -76,11 +81,11 @@ func GetUser(c *gin.Context) {
 }
 
 type CreateUserRequest struct {
-	Name     string `json:"name" binding:"required"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
+	Name      string `json:"name" binding:"required"`
+	Email     string `json:"email" binding:"required,email"`
+	Password  string `json:"password" binding:"required,min=6"`
 	ProjectID uint   `json:"project_id" binding:"required"`
-	RoleName string `json:"role_name" binding:"required,oneof=admin member"`
+	RoleName  string `json:"role_name" binding:"required,oneof=admin member"`
 }
 
 // createUserWithRole creates a User and assigns them roleName in projectID,
@@ -245,8 +250,12 @@ func AssignRole(c *gin.Context) {
 		return
 	}
 
-	userRole := models.UserRole{UserID: userID, RoleID: role.ID}
-	if err := database.DB.Create(&userRole).Error; err != nil {
+	// FirstOrCreate, not Create: re-assigning a role the user already holds is
+	// a no-op instead of a second identical UserRole row. The unique index on
+	// (user_id, role_id) enforces the same thing at the database level.
+	var userRole models.UserRole
+	if err := database.DB.Where(models.UserRole{UserID: userID, RoleID: role.ID}).
+		FirstOrCreate(&userRole).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal assign role"})
 		return
 	}

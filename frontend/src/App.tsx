@@ -29,6 +29,11 @@ import AdminTransaksiPage from './pages/admin/TransaksiPage';
 import AdminLaporanPage from './pages/admin/LaporanPage';
 import MemberDashboardPage from './pages/member/DashboardPage';
 import MemberGudangPage from './pages/member/GudangPage';
+import MemberItemPage from './pages/member/ItemPage';
+import MemberProductPage from './pages/member/ProductPage';
+import MemberProduksiPage from './pages/member/ProduksiPage';
+import MemberCustomerPage from './pages/member/CustomerPage';
+import MemberInvoicePage from './pages/member/InvoicePage';
 import MemberTransaksiPage from './pages/member/TransaksiPage';
 import MemberLaporanPage from './pages/member/LaporanPage';
 
@@ -111,7 +116,12 @@ function App() {
         >
           <Route index element={<MemberDashboardPage />} />
           <Route path="gudang" element={<MemberGudangPage />} />
+          <Route path="item" element={<MemberItemPage />} />
+          <Route path="produk" element={<MemberProductPage />} />
+          <Route path="produksi" element={<MemberProduksiPage />} />
           <Route path="transaksi" element={<MemberTransaksiPage />} />
+          <Route path="pelanggan" element={<MemberCustomerPage />} />
+          <Route path="invoice" element={<MemberInvoicePage />} />
           <Route path="laporan" element={<MemberLaporanPage />} />
         </Route>
 

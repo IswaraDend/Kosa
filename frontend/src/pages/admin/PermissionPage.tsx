@@ -5,6 +5,7 @@ import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
 import PageHeader from '../../components/PageHeader';
 import TableCard from '../../components/TableCard';
+import { moduleLabel } from '../../lib/modules';
 import '../Dashboard.css';
 
 const PermissionPage = () => {
@@ -17,12 +18,19 @@ const PermissionPage = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Scoped to the selected project on purpose: the endpoint returns only the
+  // permissions whose module this project has enabled, so a feature that is
+  // switched off never shows up as a grantable checkbox.
   useEffect(() => {
+    if (!selectedProjectId || selectedProjectId === 'all') {
+      setPermissions([]);
+      return;
+    }
     api
-      .get<{ data: PermissionDef[] }>('/admin/permissions')
+      .get<{ data: PermissionDef[] }>(`/admin/projects/${selectedProjectId}/permissions`)
       .then((res) => setPermissions(res.data))
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat katalog permission'));
-  }, []);
+  }, [selectedProjectId]);
 
   const loadGranted = (userRoleId: string) => {
     if (!userRoleId || !selectedProjectId || selectedProjectId === 'all') {
@@ -91,30 +99,42 @@ const PermissionPage = () => {
 
   return (
     <div className="dashboard-content">
-      <PageHeader title="Permission" subtitle="Atur hak akses member di project yang Anda kelola" />
+      <PageHeader
+        title="Permission"
+        subtitle="Atur hak akses member — hanya fitur yang aktif di project ini yang bisa diberikan"
+      />
 
       {errorMsg && (
         <div style={{ color: 'var(--danger)', marginBottom: '16px', fontSize: '14px' }}>{errorMsg}</div>
       )}
 
-      <TableCard title="Katalog Permission" count={permissions.length}>
-        <thead>
-          <tr>
-            <th>CODE</th>
-            <th>NAMA</th>
-            <th>MODULE</th>
-          </tr>
-        </thead>
-        <tbody>
-          {permissions.map((p) => (
-            <tr key={p.id}>
-              <td>{p.code}</td>
-              <td>{p.name}</td>
-              <td style={{ color: 'var(--text-muted)' }}>{p.module}</td>
+      {permissions.length === 0 ? (
+        <div className="card">
+          <p style={{ color: 'var(--text-muted)', margin: 0 }}>
+            Belum ada fitur yang diaktifkan untuk project ini, jadi tidak ada permission yang bisa diberikan.
+            Minta Super Admin mengaktifkan fitur lewat menu Kelola Project.
+          </p>
+        </div>
+      ) : (
+        <TableCard title="Permission Tersedia" count={permissions.length}>
+          <thead>
+            <tr>
+              <th>CODE</th>
+              <th>NAMA</th>
+              <th>FITUR</th>
             </tr>
-          ))}
-        </tbody>
-      </TableCard>
+          </thead>
+          <tbody>
+            {permissions.map((p) => (
+              <tr key={p.id}>
+                <td>{p.code}</td>
+                <td>{p.name}</td>
+                <td style={{ color: 'var(--text-muted)' }}>{moduleLabel(p.module)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </TableCard>
+      )}
 
       <div className="card" style={{ marginTop: 24 }}>
         <h3>Assign Permission ke Member</h3>
@@ -140,7 +160,7 @@ const PermissionPage = () => {
             {Object.entries(groupedByModule).map(([module, perms]) => (
               <div key={module} style={{ marginTop: 16 }}>
                 <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase' }}>
-                  {module}
+                  {moduleLabel(module)}
                 </div>
                 <div className="permission-grid">
                   {perms.map((p) => (

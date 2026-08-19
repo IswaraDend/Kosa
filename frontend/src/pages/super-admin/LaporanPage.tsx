@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { api, ApiError, buildQuery } from '../../lib/api';
+import { api, ApiError, buildQuery, type PaginatedResponse } from '../../lib/api';
 import type { StockSummaryRow, TransactionReportRow } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
+import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
 import PageHeader from '../../components/PageHeader';
 import TableCard from '../../components/TableCard';
+import Pagination from '../../components/Pagination';
 import ProjectPicker from '../../components/ProjectPicker';
 import '../Dashboard.css';
 
@@ -29,6 +31,7 @@ const LaporanPage = ({
   const [stockRows, setStockRows] = useState<StockSummaryRow[]>([]);
   const [movement, setMovement] = useState<TransactionReportRow[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
+  const { page, setPage, meta, setMeta } = usePagination(selectedProjectId);
 
   const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
 
@@ -38,9 +41,19 @@ const LaporanPage = ({
     const query =
       scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId === 'all' ? undefined : selectedProjectId }) : '';
 
+    // Only the stock table is paged; the movement rollup below is one row per
+    // period and is meant to be charted whole.
+    const stockQuery = buildQuery({
+      ...(scopeMode === 'query' && selectedProjectId !== 'all' ? { project_id: selectedProjectId } : {}),
+      page,
+      per_page: PER_PAGE,
+    });
     api
-      .get<{ data: StockSummaryRow[] }>(`${resourceBase}/reports/stock-summary${query}`)
-      .then((res) => setStockRows(res.data))
+      .get<PaginatedResponse<StockSummaryRow>>(`${resourceBase}/reports/stock-summary${stockQuery}`)
+      .then((res) => {
+        setStockRows(res.data);
+        setMeta(metaFrom(res));
+      })
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat laporan stok'));
 
     api
@@ -48,7 +61,7 @@ const LaporanPage = ({
       .then((res) => setMovement(res.data))
       .catch(() => setMovement([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, apiBasePrefix, scopeMode]);
+  }, [selectedProjectId, apiBasePrefix, scopeMode, page]);
 
   const chartData = Object.values(
     movement.reduce<Record<string, { period: string; masuk: number; keluar: number }>>((acc, row) => {
@@ -101,7 +114,7 @@ const LaporanPage = ({
         </div>
       </div>
 
-      <TableCard title="Ringkasan Stok per Gudang" count={stockRows.length}>
+      <TableCard title="Ringkasan Stok per Gudang" count={meta.total}>
         <thead>
           <tr>
             <th>ITEM</th>
@@ -121,6 +134,8 @@ const LaporanPage = ({
           ))}
         </tbody>
       </TableCard>
+
+      <Pagination page={page} meta={meta} onChange={setPage} label="baris stok" />
     </div>
   );
 };

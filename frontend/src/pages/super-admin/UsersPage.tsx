@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
+import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
+import { useDebounced } from '../../hooks/useDebounced';
 import { Plus, Trash2 } from 'lucide-react';
-import { api, ApiError } from '../../lib/api';
+import { api, ApiError, buildQuery, type PaginatedResponse } from '../../lib/api';
 import type { Project, UserListItem } from '../../types';
 import PageHeader from '../../components/PageHeader';
 import TableCard from '../../components/TableCard';
+import Pagination from '../../components/Pagination';
 import Badge from '../../components/Badge';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -26,6 +29,10 @@ const UsersPage = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'member'>('all');
+  // Search and the role filter now run in SQL: filtering the page the server
+  // already sliced would only ever search the 25 rows on screen.
+  const debouncedSearch = useDebounced(search);
+  const { page, setPage, meta, setMeta } = usePagination(`${debouncedSearch}|${roleFilter}`);
 
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<UserFormState>(emptyForm);
@@ -34,28 +41,35 @@ const UsersPage = () => {
 
   const loadUsers = () => {
     setLoading(true);
+    const query = buildQuery({
+      q: debouncedSearch,
+      role: roleFilter === 'all' ? undefined : roleFilter,
+      page,
+      per_page: PER_PAGE,
+    });
     api
-      .get<{ data: UserListItem[] }>('/super-admin/users')
-      .then((res) => setUsers(res.data))
+      .get<PaginatedResponse<UserListItem>>(`/super-admin/users${query}`)
+      .then((res) => {
+        setUsers(res.data);
+        setMeta(metaFrom(res));
+      })
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat data user'))
       .finally(() => setLoading(false));
   };
 
+  // The project list feeds the "create user" form, not the table — fetched
+  // once rather than on every page change.
   useEffect(() => {
-    loadUsers();
     api
       .get<{ data: Project[] }>('/super-admin/projects')
       .then((res) => setProjects(res.data))
       .catch(() => setProjects([]));
   }, []);
 
-  const filtered = users.filter((u) => {
-    const matchesRole = roleFilter === 'all' || u.role === roleFilter;
-    const matchesSearch =
-      u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email.toLowerCase().includes(search.toLowerCase());
-    return matchesRole && matchesSearch;
-  });
+  useEffect(() => {
+    loadUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, roleFilter, page]);
 
   const openCreateForm = () => {
     setForm({ ...emptyForm, project_id: projects[0] ? String(projects[0].id) : '' });
@@ -126,7 +140,7 @@ const UsersPage = () => {
         ))}
       </div>
 
-      <TableCard title="Daftar User" count={filtered.length}>
+      <TableCard title="Daftar User" count={meta.total}>
         <thead>
           <tr>
             <th>NAMA</th>
@@ -139,7 +153,7 @@ const UsersPage = () => {
         </thead>
         <tbody>
           {!loading &&
-            filtered.map((u) => (
+            users.map((u) => (
               <tr key={u.user_role_id}>
                 <td>{u.name}</td>
                 <td style={{ color: 'var(--text-muted)' }}>{u.email}</td>
@@ -162,6 +176,8 @@ const UsersPage = () => {
             ))}
         </tbody>
       </TableCard>
+
+      <Pagination page={page} meta={meta} onChange={setPage} label="user" />
 
       <Modal
         isOpen={formOpen}

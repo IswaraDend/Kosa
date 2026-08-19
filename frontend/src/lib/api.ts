@@ -65,6 +65,15 @@ async function upload<T>(path: string, formData: FormData): Promise<T> {
   return handleResponse<T>(res);
 }
 
+/** Envelope returned by every paginated list endpoint (see listResponse in Go). */
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+}
+
 export function buildQuery(params: Record<string, string | number | undefined | null>): string {
   const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '');
   if (entries.length === 0) return '';

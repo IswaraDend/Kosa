@@ -2,7 +2,6 @@ import type { CSSProperties } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Users, Box, Package, PackagePlus, Factory, Lock, BarChart2, FileText, Folder, LogOut, Contact, Receipt } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { useMemberPermissions } from '../hooks/useMemberPermissions';
 import { useProjectModules } from '../hooks/useProjectModules';
 import { LAYERS, groupByLayer, type ModuleCode, type NavLeaf, type SidebarBlock } from '../lib/modules';
 import './DashboardLayout.css';
@@ -20,21 +19,17 @@ const ADMIN_MODULE_NAV: Record<ModuleCode, NavLeaf> = {
   report: { path: '/admin/laporan', label: 'Laporan', icon: <FileText size={18} /> },
 };
 
-const MEMBER_MODULE_NAV: Partial<Record<ModuleCode, NavLeaf & { permission: string }>> = {
-  warehouse: { path: '/member/gudang', label: 'Gudang', icon: <Box size={18} />, permission: 'warehouse.view' },
-  transaction: { path: '/member/transaksi', label: 'Transaksi', icon: <BarChart2 size={18} />, permission: 'transaction.view' },
-  report: { path: '/member/laporan', label: 'Laporan', icon: <FileText size={18} />, permission: 'report.view' },
-};
-
+// Serves Super Admin and Admin only. Members have their own shell
+// (MemberLayout) on the separate /member route tree; the only way a member
+// reaches this component is the "/" index, which HomeRedirect bounces to
+// /member immediately — hence the empty fallback nav rather than a second
+// copy of the member menu that could drift out of sync with MemberLayout.
 const DashboardLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, isSuperAdmin, isAdmin, isMember, logout } = useAuth();
+  const { user, isSuperAdmin, isAdmin, logout } = useAuth();
 
-  const isPureMember = !isSuperAdmin && !isAdmin && isMember;
-  const memberPermissions = useMemberPermissions(isPureMember);
-  const adminModules = useProjectModules('/admin/projects', isAdmin && !isPureMember);
-  const memberModules = useProjectModules('/member/projects', isPureMember);
+  const adminModules = useProjectModules('/admin/projects', isAdmin && !isSuperAdmin);
 
   const handleLogout = () => {
     logout();
@@ -61,7 +56,7 @@ const DashboardLayout = () => {
       { path: '/super-admin/laporan', label: 'Laporan', icon: <FileText size={18} /> },
     ];
     blocks = items.map((item) => ({ kind: 'item', item }));
-  } else if (isAdmin && (location.pathname.startsWith('/admin') || !isMember)) {
+  } else if (isAdmin) {
     roleLabel = 'ADMIN';
     const core: NavLeaf[] = [
       { path: '/admin', label: 'Ringkasan', icon: <LayoutDashboard size={18} /> },
@@ -69,15 +64,6 @@ const DashboardLayout = () => {
       { path: '/admin/permission', label: 'Permission', icon: <Lock size={18} /> },
     ];
     blocks = [...core.map((item) => ({ kind: 'item', item }) as SidebarBlock), ...groupByLayer(adminModules, ADMIN_MODULE_NAV)];
-  } else {
-    roleLabel = 'MEMBER';
-    const core: NavLeaf[] = [{ path: '/member', label: 'Ringkasan', icon: <LayoutDashboard size={18} /> }];
-    const grantedNav: Partial<Record<ModuleCode, NavLeaf>> = {};
-    (Object.keys(MEMBER_MODULE_NAV) as ModuleCode[]).forEach((code) => {
-      const entry = MEMBER_MODULE_NAV[code]!;
-      if (memberPermissions.includes(entry.permission)) grantedNav[code] = entry;
-    });
-    blocks = [...core.map((item) => ({ kind: 'item', item }) as SidebarBlock), ...groupByLayer(memberModules, grantedNav)];
   }
 
   return (

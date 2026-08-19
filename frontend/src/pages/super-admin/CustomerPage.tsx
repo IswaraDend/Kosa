@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Plus, Users, Trash2, Pencil } from 'lucide-react';
-import { api, ApiError, buildQuery } from '../../lib/api';
+import { api, ApiError, buildQuery , type PaginatedResponse } from '../../lib/api';
 import type { Customer } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
+import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import TableCard from '../../components/TableCard';
+import Pagination from '../../components/Pagination';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ProjectPicker from '../../components/ProjectPicker';
+import { makeCan } from '../../lib/permissions';
 import '../Dashboard.css';
 
 interface CustomerFormState {
@@ -27,6 +30,8 @@ interface CustomerPageProps {
   projectEndpoint?: string;
   includeAllOption?: boolean;
   showProjectPicker?: boolean;
+  /** Granted permission codes. Undefined = no per-action gating (Super Admin / Admin). */
+  permissions?: string[];
 }
 
 const CustomerPage = ({
@@ -35,9 +40,12 @@ const CustomerPage = ({
   projectEndpoint = '/super-admin/projects',
   includeAllOption = true,
   showProjectPicker = true,
+  permissions,
 }: CustomerPageProps) => {
+  const can = makeCan(permissions);
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
   useProjectAutoSelect(projectEndpoint, !showProjectPicker);
+  const { page, setPage, meta, setMeta } = usePagination(selectedProjectId);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -49,7 +57,15 @@ const CustomerPage = ({
   const [confirmDelete, setConfirmDelete] = useState<Customer | null>(null);
 
   const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
-  const listQuery = scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId }) : '';
+  // Separate from listQuery on purpose: listQuery still scopes the auxiliary
+  // dropdown fetches (warehouses, items, customers) which must stay complete,
+  // while only the main table asks for a page.
+  const pagedQuery = buildQuery({
+    ...(scopeMode === 'query' ? { project_id: selectedProjectId } : {}),
+    page,
+    per_page: PER_PAGE,
+  });
+
 
   const loadCustomers = () => {
     if (selectedProjectId === 'all') {
@@ -59,8 +75,11 @@ const CustomerPage = ({
     }
     setLoading(true);
     api
-      .get<{ data: Customer[] }>(`${resourceBase}/customers${listQuery}`)
-      .then((res) => setCustomers(res.data))
+      .get<PaginatedResponse<Customer>>(`${resourceBase}/customers${pagedQuery}`)
+      .then((res) => {
+        setCustomers(res.data);
+        setMeta(metaFrom(res));
+      })
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat data customer'))
       .finally(() => setLoading(false));
   };
@@ -68,7 +87,7 @@ const CustomerPage = ({
   useEffect(() => {
     loadCustomers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, apiBasePrefix, scopeMode]);
+  }, [selectedProjectId, apiBasePrefix, scopeMode, page]);
 
   const openCreateForm = () => {
     setEditing(null);
@@ -118,10 +137,12 @@ const CustomerPage = ({
         title="Pelanggan"
         subtitle="Kelola data customer untuk keperluan invoice"
         actions={
-          <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
-            <Plus size={18} />
-            Tambah Customer
-          </button>
+          can('customer.create') && (
+            <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
+              <Plus size={18} />
+              Tambah Customer
+            </button>
+          )
         }
       />
 
@@ -146,10 +167,10 @@ const CustomerPage = ({
       ) : (
         <>
           <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(1, 1fr)' }}>
-            <StatCard label="Total Customer" value={customers.length} icon={<Users size={18} />} />
+            <StatCard label="Total Customer" value={meta.total} icon={<Users size={18} />} />
           </div>
 
-          <TableCard title="Daftar Customer" count={customers.length}>
+          <TableCard title="Daftar Customer" count={meta.total}>
             <thead>
               <tr>
                 <th>NAMA</th>
@@ -168,23 +189,29 @@ const CustomerPage = ({
                     <td style={{ color: 'var(--text-muted)' }}>{customer.email || '-'}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{customer.address || '-'}</td>
                     <td style={{ textAlign: 'right', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                      <button
-                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                        onClick={() => openEditForm(customer)}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
-                        onClick={() => setConfirmDelete(customer)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      {can('customer.update') && (
+                        <button
+                          style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          onClick={() => openEditForm(customer)}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
+                      {can('customer.delete') && (
+                        <button
+                          style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
+                          onClick={() => setConfirmDelete(customer)}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
             </tbody>
           </TableCard>
+
+          <Pagination page={page} meta={meta} onChange={setPage} label="customer" />
         </>
       )}
 

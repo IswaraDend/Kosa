@@ -21,12 +21,16 @@ export const MODULES: { code: ModuleCode; label: string }[] = [
   { code: 'report', label: 'Laporan' },
 ];
 
-// A module implies its dependencies are enabled too (e.g. Item/Product stock
-// is always tracked per Gudang). Mirrors moduleDependencies in module.go.
+// A module implies its dependencies are enabled too (e.g. raw-material Item
+// stock is always tracked per Gudang). Mirrors moduleDependencies in module.go.
+//
+// Product deliberately has no dependency: alone it is just a catalogue of
+// finished goods. Only Produksi and Invoice — the features that actually move
+// product quantity — require Gudang.
 export const MODULE_DEPENDENCIES: Record<ModuleCode, ModuleCode[]> = {
   warehouse: [],
   item: ['warehouse'],
-  product: ['warehouse'],
+  product: [],
   production: ['product', 'item', 'warehouse'],
   transaction: ['item', 'warehouse'],
   customer: [],
@@ -48,6 +52,38 @@ export function expandModules(selected: string[]): string[] {
 
   selected.forEach(visit);
   return MODULES.map((m) => m.code).filter((code) => seen.has(code));
+}
+
+/** Human label for a module code, falling back to the raw code if unknown. */
+export function moduleLabel(code: string): string {
+  return MODULES.find((m) => m.code === code)?.label ?? code;
+}
+
+/** Modules that cannot function without `m` — the inverse of MODULE_DEPENDENCIES. */
+export function dependentsOf(m: ModuleCode): ModuleCode[] {
+  return (Object.keys(MODULE_DEPENDENCIES) as ModuleCode[]).filter((code) =>
+    MODULE_DEPENDENCIES[code].includes(m),
+  );
+}
+
+/**
+ * Removes `remove` from `current` along with everything that transitively
+ * depends on it. Counterpart to expandModules — mirrors CollapseModules in
+ * module.go. Without this, unchecking a dependency (e.g. Gudang while Invoice
+ * is on) would be undone immediately by the next expandModules call, making
+ * the checkbox look stuck.
+ */
+export function collapseModules(current: string[], remove: ModuleCode): string[] {
+  const dropped = new Set<string>();
+
+  const visit = (m: ModuleCode) => {
+    if (dropped.has(m)) return;
+    dropped.add(m);
+    dependentsOf(m).forEach(visit);
+  };
+  visit(remove);
+
+  return MODULES.map((m) => m.code).filter((code) => current.includes(code) && !dropped.has(code));
 }
 
 // Pañca Kośa — the five layers a project's modules are grouped under,

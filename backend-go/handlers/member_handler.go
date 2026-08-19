@@ -14,6 +14,7 @@ import (
 // scoped strictly to projectID from context, unlike the global ListUsers.
 func ListProjectMembers(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
+	page := paginationFrom(c)
 
 	query := database.DB.Table("user_roles").
 		Select(`users.id, users.name, users.email, users.is_super_admin,
@@ -24,13 +25,18 @@ func ListProjectMembers(c *gin.Context) {
 		Joins("JOIN projects ON projects.id = roles.project_id").
 		Where("roles.project_id = ?", projectID)
 
+	if term := searchTerm(c); term != "" {
+		query = query.Where("LOWER(users.name) LIKE ? OR LOWER(users.email) LIKE ?", term, term)
+	}
+
 	data := []UserListItem{}
-	if err := query.Order("users.created_at desc").Scan(&data).Error; err != nil {
+	total, err := paginateScan(query.Order("users.created_at desc"), page, &data)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data member"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": data, "total": len(data)})
+	c.JSON(http.StatusOK, listResponse(data, total, page))
 }
 
 type AddMemberRequest struct {

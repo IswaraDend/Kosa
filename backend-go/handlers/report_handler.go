@@ -33,23 +33,31 @@ func stockSummaryQuery(projectID *uint) *gorm.DB {
 }
 
 func StockSummaryReport(c *gin.Context) {
+	page := paginationFrom(c)
 	rows := []StockSummaryRow{}
-	if err := stockSummaryQuery(queryUintPtr(c, "project_id")).Order("items.name").Scan(&rows).Error; err != nil {
+	total, err := paginateScan(stockSummaryQuery(queryUintPtr(c, "project_id")).Order("items.name"), page, &rows)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil laporan stok"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": rows, "total": len(rows)})
+	c.JSON(http.StatusOK, listResponse(rows, total, page))
 }
 
 func StockSummaryReportForProject(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
+	page := paginationFrom(c)
 	rows := []StockSummaryRow{}
-	if err := stockSummaryQuery(&projectID).Order("items.name").Scan(&rows).Error; err != nil {
+	total, err := paginateScan(stockSummaryQuery(&projectID).Order("items.name"), page, &rows)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil laporan stok"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": rows, "total": len(rows)})
+	c.JSON(http.StatusOK, listResponse(rows, total, page))
 }
+
+// The report queries below are GROUP BY rollups (one row per period, or a
+// top-N), so they are returned whole rather than paginated — the row count is
+// bounded by the date range, not by how much data the project holds.
 
 type TransactionReportRow struct {
 	Period   string  `json:"period"`
@@ -69,12 +77,7 @@ func transactionReportQuery(projectID *uint, txType, from, to string) *gorm.DB {
 	if txType != "" {
 		query = query.Where("transactions.type = ?", txType)
 	}
-	if from != "" {
-		query = query.Where("transactions.created_at >= ?", from)
-	}
-	if to != "" {
-		query = query.Where("transactions.created_at <= ?", to)
-	}
+	query = applyCreatedAtRange(query, "transactions.created_at", from, to)
 	return query.Group("period, transactions.type").Order("period")
 }
 
@@ -121,12 +124,7 @@ func SalesSummaryReport(c *gin.Context) {
 	if projectID := queryUintPtr(c, "project_id"); projectID != nil {
 		query = query.Where("invoices.project_id = ?", *projectID)
 	}
-	if from := c.Query("from"); from != "" {
-		query = query.Where("invoices.created_at >= ?", from)
-	}
-	if to := c.Query("to"); to != "" {
-		query = query.Where("invoices.created_at <= ?", to)
-	}
+	query = applyCreatedAtRange(query, "invoices.created_at", c.Query("from"), c.Query("to"))
 
 	rows := []SalesSummaryRow{}
 	if err := query.Group("period").Order("period").Scan(&rows).Error; err != nil {

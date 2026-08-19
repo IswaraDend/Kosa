@@ -9,12 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func listProductsByProject(projectID uint) ([]models.Product, error) {
+func listProductsByProject(projectID uint, page Pagination) ([]models.Product, int64, error) {
 	products := []models.Product{}
-	err := database.DB.Model(&models.Product{}).
+	query := database.DB.Model(&models.Product{}).
 		Where("project_id = ?", projectID).
-		Order("created_at desc").Find(&products).Error
-	return products, err
+		Order("created_at desc")
+	total, err := paginate(query, page, &products)
+	return products, total, err
 }
 
 func getProductScoped(id, projectID uint) (models.Product, error) {
@@ -72,18 +73,20 @@ func removeRecipeLineScoped(recipeID, productID, projectID uint) error {
 // ---- Super Admin routes (global, project_id optional via query) ----
 
 func ListProducts(c *gin.Context) {
+	page := paginationFrom(c)
 	query := database.DB.Model(&models.Product{})
 	if projectID := queryUintPtr(c, "project_id"); projectID != nil {
 		query = query.Where("project_id = ?", *projectID)
 	}
 
 	products := []models.Product{}
-	if err := query.Order("created_at desc").Find(&products).Error; err != nil {
+	total, err := paginate(query.Order("created_at desc"), page, &products)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data produk"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": products, "total": len(products)})
+	c.JSON(http.StatusOK, listResponse(products, total, page))
 }
 
 func GetProduct(c *gin.Context) {
@@ -287,12 +290,13 @@ func RemoveProductRecipe(c *gin.Context) {
 
 func ListProductsForProject(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
-	products, err := listProductsByProject(projectID)
+	page := paginationFrom(c)
+	products, total, err := listProductsByProject(projectID, page)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data produk"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": products, "total": len(products)})
+	c.JSON(http.StatusOK, listResponse(products, total, page))
 }
 
 func GetProductForProject(c *gin.Context) {

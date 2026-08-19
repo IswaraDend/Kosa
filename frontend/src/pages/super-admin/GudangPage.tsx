@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Plus, Box, Trash2, Pencil } from 'lucide-react';
-import { api, ApiError, buildQuery } from '../../lib/api';
+import { api, ApiError, buildQuery , type PaginatedResponse } from '../../lib/api';
 import type { Warehouse } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
+import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import TableCard from '../../components/TableCard';
+import Pagination from '../../components/Pagination';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ProjectPicker from '../../components/ProjectPicker';
+import { makeCan } from '../../lib/permissions';
 import '../Dashboard.css';
 
 interface WarehouseFormState {
@@ -27,6 +30,8 @@ interface GudangPageProps {
   projectEndpoint?: string;
   includeAllOption?: boolean;
   showProjectPicker?: boolean;
+  /** Granted permission codes. Undefined = no per-action gating (Super Admin / Admin). */
+  permissions?: string[];
 }
 
 const GudangPage = ({
@@ -35,9 +40,12 @@ const GudangPage = ({
   projectEndpoint = '/super-admin/projects',
   includeAllOption = true,
   showProjectPicker = true,
+  permissions,
 }: GudangPageProps) => {
+  const can = makeCan(permissions);
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
   useProjectAutoSelect(projectEndpoint, !showProjectPicker);
+  const { page, setPage, meta, setMeta } = usePagination(selectedProjectId);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -49,7 +57,15 @@ const GudangPage = ({
   const [confirmDelete, setConfirmDelete] = useState<Warehouse | null>(null);
 
   const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
-  const listQuery = scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId }) : '';
+  // Separate from listQuery on purpose: listQuery still scopes the auxiliary
+  // dropdown fetches (warehouses, items, customers) which must stay complete,
+  // while only the main table asks for a page.
+  const pagedQuery = buildQuery({
+    ...(scopeMode === 'query' ? { project_id: selectedProjectId } : {}),
+    page,
+    per_page: PER_PAGE,
+  });
+
 
   const loadWarehouses = () => {
     if (selectedProjectId === 'all') {
@@ -59,8 +75,11 @@ const GudangPage = ({
     }
     setLoading(true);
     api
-      .get<{ data: Warehouse[] }>(`${resourceBase}/warehouses${listQuery}`)
-      .then((res) => setWarehouses(res.data))
+      .get<PaginatedResponse<Warehouse>>(`${resourceBase}/warehouses${pagedQuery}`)
+      .then((res) => {
+        setWarehouses(res.data);
+        setMeta(metaFrom(res));
+      })
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat data gudang'))
       .finally(() => setLoading(false));
   };
@@ -68,7 +87,7 @@ const GudangPage = ({
   useEffect(() => {
     loadWarehouses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, apiBasePrefix, scopeMode]);
+  }, [selectedProjectId, apiBasePrefix, scopeMode, page]);
 
   const openCreateForm = () => {
     setEditing(null);
@@ -118,10 +137,12 @@ const GudangPage = ({
         title="Gudang"
         subtitle="Kelola gudang penyimpanan untuk project terpilih"
         actions={
-          <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
-            <Plus size={18} />
-            Tambah Gudang
-          </button>
+          can('warehouse.create') && (
+            <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
+              <Plus size={18} />
+              Tambah Gudang
+            </button>
+          )
         }
       />
 
@@ -146,11 +167,11 @@ const GudangPage = ({
       ) : (
         <>
           <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
-            <StatCard label="Total Gudang" value={warehouses.length} icon={<Box size={18} />} />
-            <StatCard label="Gudang Aktif" value={warehouses.length} icon={<Box size={18} />} />
+            <StatCard label="Total Gudang" value={meta.total} icon={<Box size={18} />} />
+            <StatCard label="Gudang Aktif" value={meta.total} icon={<Box size={18} />} />
           </div>
 
-          <TableCard title="Daftar Gudang" count={warehouses.length}>
+          <TableCard title="Daftar Gudang" count={meta.total}>
             <thead>
               <tr>
                 <th>NAMA GUDANG</th>
@@ -171,23 +192,29 @@ const GudangPage = ({
                       {new Date(w.created_at).toLocaleDateString('id-ID')}
                     </td>
                     <td style={{ textAlign: 'right', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                      <button
-                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                        onClick={() => openEditForm(w)}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
-                        onClick={() => setConfirmDelete(w)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      {can('warehouse.update') && (
+                        <button
+                          style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          onClick={() => openEditForm(w)}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
+                      {can('warehouse.delete') && (
+                        <button
+                          style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
+                          onClick={() => setConfirmDelete(w)}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
             </tbody>
           </TableCard>
+
+          <Pagination page={page} meta={meta} onChange={setPage} label="gudang" />
         </>
       )}
 

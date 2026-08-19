@@ -20,7 +20,7 @@ Sebelum menjalankan aplikasi, pastikan Anda telah membuat *database* di PostgreS
    ```sql
    CREATE DATABASE kosa;
    ```
-3. Konfigurasi kredensial *database* ada di dalam kode Go (secara _default_ menggunakan user: `[USERNAME]` dan password: `[PASSWORD]`). Anda bisa menyesuaikannya di file `backend-go/database/database.go`.
+3. Konfigurasi database dibaca dari `backend-go/.env` (salin dari `.env.example`), lewat variabel `DB_DSN` — bukan lagi dari dalam kode.
 4. *Tabel-tabel database akan otomatis dibuat (Auto Migrate) saat server Golang pertama kali dijalankan.*
 
 ---
@@ -39,7 +39,7 @@ go run main.go
 ```
 *Aplikasi akan berjalan di `http://localhost:8080`*
 
-*(Catatan: Saat dijalankan, aplikasi akan otomatis melakukan 'seeding' untuk akun Super Admin. Anda dapat login menggunakan email: `[EMAIL_ADDRESS]` dan password: `[PASSWORD]`)*
+*(Catatan: pada boot pertama, saat tabel `users` masih kosong, aplikasi membuat satu akun Super Admin. Kredensialnya diambil dari `SEED_SUPERADMIN_EMAIL` dan `SEED_SUPERADMIN_PASSWORD`. Kalau keduanya dikosongkan, dipakai kredensial development bawaan dan server akan mencetak peringatan — jangan pernah biarkan itu terjadi di server yang bisa diakses publik.)*
 
 ### 2. Menjalankan Frontend (React)
 Frontend ini merupakan Antarmuka Pengguna (*User Interface*) dengan tema gelap (*dark mode*) yang elegan.
@@ -70,6 +70,43 @@ python main.py
 ```
 
 ---
+
+---
+
+## 🚢 Deploy dengan Docker
+
+Satu tumpukan berisi Postgres, API Go, dan SPA di balik nginx. Frontend dan API
+berbagi satu origin, jadi CORS tidak berperan sama sekali: nginx menyajikan
+hasil build React dan meneruskan `/api/*` ke backend.
+
+```bash
+cp .env.example .env      # lalu isi semua nilai yang kosong
+docker compose up -d --build
+```
+
+Aplikasi tersedia di `http://localhost:8080` (atau `PUBLIC_PORT` yang Anda set).
+
+Yang perlu diketahui:
+
+- **Hanya `web` yang membuka port ke host.** Backend dan Postgres tidak dapat
+  dijangkau dari luar jaringan compose.
+- **`VITE_API_URL` dipanggang saat build.** Mengubah alamat API berarti
+  `docker compose build web`, bukan sekadar restart.
+- **`SEED_SUPERADMIN_*` hanya berlaku pada boot pertama**, ketika tabel `users`
+  masih kosong. Setelah itu ganti password lewat aplikasi.
+- **Volume `kosa-db` adalah satu-satunya penyimpan state.** Backup dengan
+  `docker compose exec db pg_dump -U kosa kosa > backup.sql`, jangan dengan
+  menyalin direktorinya saat container berjalan.
+
+Perintah yang sering dipakai:
+
+```bash
+docker compose logs -f backend
+```
+
+```bash
+docker compose exec db psql -U kosa -d kosa
+```
 
 ## 📚 Struktur Folder
 ```text

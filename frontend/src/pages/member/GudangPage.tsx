@@ -1,68 +1,11 @@
-import { useEffect, useState } from 'react';
-import { Box } from 'lucide-react';
-import { api, ApiError } from '../../lib/api';
-import type { Warehouse } from '../../types';
-import { useSelectedProject } from '../../hooks/useSelectedProject';
-import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
-import PageHeader from '../../components/PageHeader';
-import StatCard from '../../components/StatCard';
-import TableCard from '../../components/TableCard';
-import '../Dashboard.css';
+import { useMemberPermissions } from '../../hooks/useMemberPermissions';
+import SharedGudangPage from '../super-admin/GudangPage';
+import { MEMBER_SCOPE } from './scope';
 
 const GudangPage = () => {
-  const { selectedProjectId } = useSelectedProject();
-  useProjectAutoSelect('/member/projects', true);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState('');
+  const permissions = useMemberPermissions(true);
 
-  useEffect(() => {
-    if (selectedProjectId === 'all' || !selectedProjectId) {
-      setWarehouses([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    api
-      .get<{ data: Warehouse[] }>(`/member/projects/${selectedProjectId}/warehouses`)
-      .then((res) => setWarehouses(res.data))
-      .catch((err: ApiError) => setErrorMsg(err.message || 'Anda belum memiliki akses gudang di project ini'))
-      .finally(() => setLoading(false));
-  }, [selectedProjectId]);
-
-  return (
-    <div className="dashboard-content">
-      <PageHeader title="Gudang" subtitle="Daftar gudang (read only)" />
-
-      {errorMsg && (
-        <div style={{ color: 'var(--danger)', marginBottom: '16px', fontSize: '14px' }}>{errorMsg}</div>
-      )}
-
-      <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(1, 1fr)' }}>
-        <StatCard label="Total Gudang" value={warehouses.length} icon={<Box size={18} />} />
-      </div>
-
-      <TableCard title="Daftar Gudang" count={warehouses.length}>
-        <thead>
-          <tr>
-            <th>NAMA GUDANG</th>
-            <th>KODE</th>
-            <th>ALAMAT</th>
-          </tr>
-        </thead>
-        <tbody>
-          {!loading &&
-            warehouses.map((w) => (
-              <tr key={w.id}>
-                <td>{w.name}</td>
-                <td style={{ color: 'var(--text-muted)' }}>{w.code}</td>
-                <td style={{ color: 'var(--text-muted)' }}>{w.address}</td>
-              </tr>
-            ))}
-        </tbody>
-      </TableCard>
-    </div>
-  );
+  return <SharedGudangPage {...MEMBER_SCOPE} permissions={permissions} />;
 };
 
 export default GudangPage;

@@ -15,8 +15,12 @@ import (
 // bypass module gating entirely.
 func RequireModule(module string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		projectIDVal, _ := c.Get("projectID")
-		projectID, _ := projectIDVal.(uint)
+		projectID, ok := projectIDFor(c)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "projectId tidak valid"})
+			c.Abort()
+			return
+		}
 
 		var count int64
 		database.DB.Model(&models.ProjectModule{}).

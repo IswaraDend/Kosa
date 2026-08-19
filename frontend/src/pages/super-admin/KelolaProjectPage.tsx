@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
+import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
+import { useDebounced } from '../../hooks/useDebounced';
 import { Plus, Folder, CheckCircle, Users, UserCog, MoreVertical } from 'lucide-react';
-import { api, ApiError } from '../../lib/api';
-import type { Project } from '../../types';
-import { MODULES, LAYERS, expandModules } from '../../lib/modules';
+import { api, ApiError, buildQuery, type PaginatedResponse } from '../../lib/api';
+import type { Project, SummaryData } from '../../types';
+import { MODULES, LAYERS, expandModules, collapseModules, type ModuleCode } from '../../lib/modules';
 import type { CSSProperties } from 'react';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import TableCard from '../../components/TableCard';
+import Pagination from '../../components/Pagination';
 import Badge from '../../components/Badge';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
@@ -26,6 +29,11 @@ const KelolaProjectPage = () => {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounced(search);
+  const { page, setPage, meta, setMeta } = usePagination(debouncedSearch);
+  // The cards below summarise every project, not the page on screen, so they
+  // come from the summary endpoint rather than from the rows just fetched.
+  const [summary, setSummary] = useState<SummaryData | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -37,22 +45,32 @@ const KelolaProjectPage = () => {
 
   const loadProjects = () => {
     setLoading(true);
+    const query = buildQuery({ q: debouncedSearch, page, per_page: PER_PAGE });
     api
-      .get<{ data: Project[] }>('/super-admin/projects')
-      .then((res) => setProjects(res.data))
+      .get<PaginatedResponse<Project>>(`/super-admin/projects${query}`)
+      .then((res) => {
+        setProjects(res.data);
+        setMeta(metaFrom(res));
+      })
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat data project'))
       .finally(() => setLoading(false));
   };
 
+  const loadSummary = () => {
+    api
+      .get<SummaryData>('/super-admin/summary')
+      .then(setSummary)
+      .catch(() => setSummary(null));
+  };
+
   useEffect(() => {
-    loadProjects();
+    loadSummary();
   }, []);
 
-  const filtered = projects.filter(
-    (p) =>
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.code.toLowerCase().includes(search.toLowerCase()),
-  );
+  useEffect(() => {
+    loadProjects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, page]);
 
   const openCreateForm = () => {
     setEditingProject(null);
@@ -72,10 +90,16 @@ const KelolaProjectPage = () => {
     setMenuOpenId(null);
   };
 
-  const toggleModule = (code: string) => {
-    const isEnabled = form.modules.includes(code);
-    const next = isEnabled ? form.modules.filter((m) => m !== code) : [...form.modules, code];
-    setForm({ ...form, modules: expandModules(next) });
+  // Turning a module ON pulls its dependencies in; turning it OFF pushes its
+  // dependents out. Using expandModules for both would silently re-add a
+  // dependency the user just unchecked.
+  const toggleModule = (code: ModuleCode) => {
+    setForm((prev) => ({
+      ...prev,
+      modules: prev.modules.includes(code)
+        ? collapseModules(prev.modules, code)
+        : expandModules([...prev.modules, code]),
+    }));
   };
 
   const handleSubmit = async () => {
@@ -89,6 +113,7 @@ const KelolaProjectPage = () => {
       }
       setFormOpen(false);
       loadProjects();
+      loadSummary();
     } catch (err) {
       setErrorMsg(err instanceof ApiError ? err.message : 'Gagal menyimpan project');
     } finally {
@@ -119,10 +144,6 @@ const KelolaProjectPage = () => {
     }
   };
 
-  const totalActive = projects.filter((p) => p.status === 'aktif').length;
-  const distinctAdmins = new Set(projects.map((p) => p.admin_name).filter(Boolean)).size;
-  const totalMembers = projects.reduce((sum, p) => sum + p.member_count, 0);
-
   return (
     <div className="dashboard-content">
       <PageHeader
@@ -144,13 +165,13 @@ const KelolaProjectPage = () => {
       )}
 
       <div className="summary-cards">
-        <StatCard label="Total Project" value={projects.length} icon={<Folder size={18} />} />
-        <StatCard label="Project Aktif" value={totalActive} icon={<CheckCircle size={18} />} />
-        <StatCard label="Admin Bertugas" value={distinctAdmins} icon={<UserCog size={18} />} />
-        <StatCard label="Total Member" value={totalMembers} icon={<Users size={18} />} />
+        <StatCard label="Total Project" value={summary?.total_projects ?? '-'} icon={<Folder size={18} />} />
+        <StatCard label="Project Aktif" value={summary?.active_projects ?? '-'} icon={<CheckCircle size={18} />} />
+        <StatCard label="Admin Bertugas" value={summary?.total_admins ?? '-'} icon={<UserCog size={18} />} />
+        <StatCard label="Total Member" value={summary?.total_members ?? '-'} icon={<Users size={18} />} />
       </div>
 
-      <TableCard title="Daftar Project" count={filtered.length}>
+      <TableCard title="Daftar Project" count={meta.total}>
         <thead>
           <tr>
             <th>NAMA PROJECT</th>
@@ -165,7 +186,7 @@ const KelolaProjectPage = () => {
         </thead>
         <tbody>
           {!loading &&
-            filtered.map((project) => (
+            projects.map((project) => (
               <tr key={project.id}>
                 <td>{project.name}</td>
                 <td style={{ color: 'var(--text-muted)' }}>{project.code}</td>
@@ -222,6 +243,8 @@ const KelolaProjectPage = () => {
             ))}
         </tbody>
       </TableCard>
+
+      <Pagination page={page} meta={meta} onChange={setPage} label="project" />
 
       <Modal
         isOpen={formOpen}

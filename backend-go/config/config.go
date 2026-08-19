@@ -1,6 +1,9 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"log"
 	"os"
 	"strings"
 )
@@ -16,7 +19,15 @@ var AllowedOrigins []string
 func Load() {
 	jwtKeyStr := os.Getenv("JWT_SECRET")
 	if jwtKeyStr == "" {
-		jwtKeyStr = "my_super_secret_key_change_in_production"
+		// Deliberately NOT a hardcoded default. A fixed secret committed to the
+		// repository is a signing key every reader already knows, so anyone
+		// could mint valid tokens against a deployment that forgot to set
+		// JWT_SECRET. A random per-boot key fails safe instead: the app still
+		// starts, but every token dies on restart, which surfaces the
+		// misconfiguration immediately rather than silently.
+		jwtKeyStr = randomSecret()
+		log.Println("WARNING: JWT_SECRET belum diset. Memakai kunci acak sementara — " +
+			"semua sesi login akan hangus setiap server restart. Set JWT_SECRET di .env sebelum deploy.")
 	}
 	JWTKey = []byte(jwtKeyStr)
 
@@ -31,4 +42,12 @@ func Load() {
 			AllowedOrigins = append(AllowedOrigins, origin)
 		}
 	}
+}
+
+func randomSecret() string {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		log.Fatal("Gagal membuat kunci JWT acak:", err)
+	}
+	return hex.EncodeToString(buf)
 }

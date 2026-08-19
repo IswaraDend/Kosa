@@ -9,12 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func listCustomersByProject(projectID uint) ([]models.Customer, error) {
+func listCustomersByProject(projectID uint, page Pagination) ([]models.Customer, int64, error) {
 	customers := []models.Customer{}
-	err := database.DB.Model(&models.Customer{}).
+	query := database.DB.Model(&models.Customer{}).
 		Where("project_id = ?", projectID).
-		Order("created_at desc").Find(&customers).Error
-	return customers, err
+		Order("created_at desc")
+	total, err := paginate(query, page, &customers)
+	return customers, total, err
 }
 
 func getCustomerScoped(id, projectID uint) (models.Customer, error) {
@@ -42,18 +43,20 @@ func deleteCustomerScoped(id, projectID uint) error {
 // ---- Super Admin routes (global, project_id optional via query) ----
 
 func ListCustomers(c *gin.Context) {
+	page := paginationFrom(c)
 	query := database.DB.Model(&models.Customer{})
 	if projectID := queryUintPtr(c, "project_id"); projectID != nil {
 		query = query.Where("project_id = ?", *projectID)
 	}
 
 	customers := []models.Customer{}
-	if err := query.Order("created_at desc").Find(&customers).Error; err != nil {
+	total, err := paginate(query.Order("created_at desc"), page, &customers)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data customer"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": customers, "total": len(customers)})
+	c.JSON(http.StatusOK, listResponse(customers, total, page))
 }
 
 func GetCustomer(c *gin.Context) {
@@ -161,12 +164,13 @@ func DeleteCustomer(c *gin.Context) {
 
 func ListCustomersForProject(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
-	customers, err := listCustomersByProject(projectID)
+	page := paginationFrom(c)
+	customers, total, err := listCustomersByProject(projectID, page)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data customer"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": customers, "total": len(customers)})
+	c.JSON(http.StatusOK, listResponse(customers, total, page))
 }
 
 func GetCustomerForProject(c *gin.Context) {

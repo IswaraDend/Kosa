@@ -213,38 +213,6 @@
   color: var(--text-secondary);
 }
 
-.divider {
-  display: flex;
-  align-items: center;
-  text-align: center;
-  margin: 32px 0;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.divider::before,
-.divider::after {
-  content: '';
-  flex: 1;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.divider:not(:empty)::before { margin-right: .25em; }
-.divider:not(:empty)::after { margin-left: .25em; }
-
-.sso-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-}
-
-.sso-btn-wrapper {
-  margin-top: 16px;
-  display: flex;
-  justify-content: center;
-}
-
 .terms-text {
   text-align: center;
   font-size: 12px;

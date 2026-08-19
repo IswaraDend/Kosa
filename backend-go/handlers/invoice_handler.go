@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func listInvoicesByProject(projectID uint, status, from, to string) ([]models.Invoice, error) {
+func listInvoicesByProject(projectID uint, status, from, to string, page Pagination) ([]models.Invoice, int64, error) {
 	query := database.DB.Model(&models.Invoice{}).
 		Preload("Customer").Preload("Warehouse").Preload("Items.Product").
 		Where("project_id = ?", projectID)
@@ -20,16 +20,11 @@ func listInvoicesByProject(projectID uint, status, from, to string) ([]models.In
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}
-	if from != "" {
-		query = query.Where("created_at >= ?", from)
-	}
-	if to != "" {
-		query = query.Where("created_at <= ?", to)
-	}
+	query = applyCreatedAtRange(query, "created_at", from, to)
 
 	invoices := []models.Invoice{}
-	err := query.Order("created_at desc").Find(&invoices).Error
-	return invoices, err
+	total, err := paginate(query.Order("created_at desc"), page, &invoices)
+	return invoices, total, err
 }
 
 func getInvoiceScoped(id, projectID uint) (models.Invoice, error) {
@@ -63,6 +58,13 @@ type CreateInvoiceRequest struct {
 	Items       []CreateInvoiceItemRequest `json:"items" binding:"required,min=1,dive"`
 }
 
+// invoiceNumberMaxAttempts bounds the retry in createInvoiceCore.
+const invoiceNumberMaxAttempts = 3
+
+// generateInvoiceNumber derives the running number from a COUNT, which is not
+// race-free on its own — see the retry loop in createInvoiceCore, and the
+// unique index on (project_id, invoice_number) that makes a collision fail
+// loudly instead of producing two invoices with the same number.
 func generateInvoiceNumber(tx *gorm.DB, projectID uint) (string, error) {
 	var project models.Project
 	if err := tx.First(&project, projectID).Error; err != nil {
@@ -101,7 +103,7 @@ func createInvoiceCore(projectID, callerID uint, req CreateInvoiceFields) (model
 
 	var invoice models.Invoice
 
-	err := database.DB.Transaction(func(tx *gorm.DB) error {
+	runOnce := func(tx *gorm.DB) error {
 		invoiceNumber, err := generateInvoiceNumber(tx, projectID)
 		if err != nil {
 			return err
@@ -148,7 +150,19 @@ func createInvoiceCore(projectID, callerID uint, req CreateInvoiceFields) (model
 		}
 
 		return nil
-	})
+	}
+
+	// Two concurrent creates in the same project can compute the same invoice
+	// number. The unique index rejects the loser, whose transaction rolls back
+	// entirely (stock included); recounting on the next attempt then yields the
+	// next free number. Bounded, so a genuine constraint problem still surfaces.
+	var err error
+	for attempt := 0; attempt < invoiceNumberMaxAttempts; attempt++ {
+		err = database.DB.Transaction(runOnce)
+		if err == nil || !isDuplicateKeyError(err) {
+			break
+		}
+	}
 
 	if err != nil {
 		return models.Invoice{}, err
@@ -158,6 +172,17 @@ func createInvoiceCore(projectID, callerID uint, req CreateInvoiceFields) (model
 	return invoice, nil
 }
 
+// updateInvoiceStatusScoped changes an invoice's status, and — when that
+// status is "cancelled" — puts the sold quantities back into ProductStock.
+//
+// Creating an invoice deducts stock, so cancelling one has to add it back:
+// the goods never left the warehouse. Skipping the restock made the ledger
+// and the shelf disagree permanently, because the sales report already
+// excludes cancelled invoices from revenue.
+//
+// Doing this exactly once is guaranteed by the guard above: an invoice that
+// is already cancelled is rejected outright, so it can only enter the
+// cancelled state a single time and the restock can never double-count.
 func updateInvoiceStatusScoped(id, projectID uint, status models.InvoiceStatus) (models.Invoice, error) {
 	invoice, err := getInvoiceScoped(id, projectID)
 	if err != nil {
@@ -166,11 +191,30 @@ func updateInvoiceStatusScoped(id, projectID uint, status models.InvoiceStatus) 
 	if invoice.Status == models.InvoiceCancelled {
 		return models.Invoice{}, fmt.Errorf("invoice yang sudah dibatalkan tidak bisa diubah lagi")
 	}
+	if invoice.Status == status {
+		return invoice, nil
+	}
 
-	invoice.Status = status
-	if err := database.DB.Save(&invoice).Error; err != nil {
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if status == models.InvoiceCancelled {
+			for _, line := range invoice.Items {
+				if err := adjustProductStock(tx, projectID, invoice.WarehouseID, line.ProductID, line.Quantity); err != nil {
+					return err
+				}
+			}
+		}
+
+		// Update the single column rather than Save(&invoice): the struct was
+		// loaded with its associations preloaded, and Save would try to write
+		// those back too.
+		return tx.Model(&models.Invoice{}).Where("id = ?", invoice.ID).
+			Update("status", status).Error
+	})
+	if err != nil {
 		return models.Invoice{}, err
 	}
+
+	invoice.Status = status
 	return invoice, nil
 }
 
@@ -181,6 +225,7 @@ type UpdateInvoiceStatusRequest struct {
 // ---- Super Admin routes (global, project_id trusted from body/query) ----
 
 func ListInvoices(c *gin.Context) {
+	page := paginationFrom(c)
 	query := database.DB.Model(&models.Invoice{}).
 		Preload("Customer").Preload("Warehouse").Preload("Items.Product")
 
@@ -193,25 +238,30 @@ func ListInvoices(c *gin.Context) {
 	if customerID := queryUintPtr(c, "customer_id"); customerID != nil {
 		query = query.Where("customer_id = ?", *customerID)
 	}
-	if from := c.Query("from"); from != "" {
-		query = query.Where("created_at >= ?", from)
-	}
-	if to := c.Query("to"); to != "" {
-		query = query.Where("created_at <= ?", to)
-	}
+	query = applyCreatedAtRange(query, "created_at", c.Query("from"), c.Query("to"))
 
 	query = query.Order("created_at desc")
+
+	// ?limit= predates pagination and is still used by the dashboard's
+	// "invoice terbaru" panel, which wants the newest N rows and no page maths.
 	if limit := queryUintPtr(c, "limit"); limit != nil {
-		query = query.Limit(int(*limit))
+		invoices := []models.Invoice{}
+		if err := query.Limit(int(*limit)).Find(&invoices).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data invoice"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": invoices, "total": len(invoices)})
+		return
 	}
 
 	invoices := []models.Invoice{}
-	if err := query.Find(&invoices).Error; err != nil {
+	total, err := paginate(query, page, &invoices)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data invoice"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": invoices, "total": len(invoices)})
+	c.JSON(http.StatusOK, listResponse(invoices, total, page))
 }
 
 func GetInvoice(c *gin.Context) {
@@ -284,12 +334,13 @@ func UpdateInvoiceStatus(c *gin.Context) {
 
 func ListInvoicesForProject(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
-	invoices, err := listInvoicesByProject(projectID, c.Query("status"), c.Query("from"), c.Query("to"))
+	page := paginationFrom(c)
+	invoices, total, err := listInvoicesByProject(projectID, c.Query("status"), c.Query("from"), c.Query("to"), page)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data invoice"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": invoices, "total": len(invoices)})
+	c.JSON(http.StatusOK, listResponse(invoices, total, page))
 }
 
 func GetInvoiceForProject(c *gin.Context) {

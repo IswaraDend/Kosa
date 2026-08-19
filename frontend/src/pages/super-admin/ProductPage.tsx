@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react';
 import { Plus, PackagePlus, Trash2, Pencil, ListTree, UploadCloud } from 'lucide-react';
-import { api, ApiError, buildQuery } from '../../lib/api';
+import { api, ApiError, buildQuery , type PaginatedResponse } from '../../lib/api';
 import { formatCurrency } from '../../lib/format';
 import type { Item, Product, ProductRecipeLine } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
+import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import TableCard from '../../components/TableCard';
+import Pagination from '../../components/Pagination';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ProjectPicker from '../../components/ProjectPicker';
 import ImportModal from '../../components/ImportModal';
+import { makeCan } from '../../lib/permissions';
 import '../Dashboard.css';
 
 interface ProductFormState {
@@ -29,6 +32,13 @@ interface ProductPageProps {
   projectEndpoint?: string;
   includeAllOption?: boolean;
   showProjectPicker?: boolean;
+  /**
+   * Enabled modules of the current project. Leave undefined for Super Admin,
+   * which is deliberately not module-gated and always sees the full page.
+   */
+  enabledModules?: string[];
+  /** Granted permission codes. Undefined = no per-action gating (Super Admin / Admin). */
+  permissions?: string[];
 }
 
 const ProductPage = ({
@@ -37,9 +47,20 @@ const ProductPage = ({
   projectEndpoint = '/super-admin/projects',
   includeAllOption = true,
   showProjectPicker = true,
+  enabledModules,
+  permissions,
 }: ProductPageProps) => {
+  const can = makeCan(permissions);
+  const canCreate = can('product.create');
+  const canUpdate = can('product.update');
+  const canDelete = can('product.delete');
+  const canImport = can('product.import');
+  // Editing the bill of materials is editing the product — same permission
+  // the backend requires on POST/DELETE /products/:id/recipe.
+  const canManageRecipe = can('product.update');
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
   useProjectAutoSelect(projectEndpoint, !showProjectPicker);
+  const { page, setPage, meta, setMeta } = usePagination(selectedProjectId);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -59,6 +80,24 @@ const ProductPage = ({
 
   const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
   const listQuery = scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId }) : '';
+  // Separate from listQuery on purpose: listQuery still scopes the auxiliary
+  // dropdown fetches (warehouses, items, customers) which must stay complete,
+  // while only the main table asks for a page.
+  const pagedQuery = buildQuery({
+    ...(scopeMode === 'query' ? { project_id: selectedProjectId } : {}),
+    page,
+    per_page: PER_PAGE,
+  });
+
+
+  // On its own, Produk is just a catalogue (SKU/nama/satuan/harga). The
+  // stock-bearing parts only mean something once their backing module is on:
+  // HPP is produced by Produksi or the stock import, both of which need
+  // Gudang; the BOM editor picks raw materials, which needs Item.
+  const hasModule = (code: string) => !enabledModules || enabledModules.includes(code);
+  const showStockColumns = hasModule('warehouse');
+  const showImport = canImport && showStockColumns;
+  const showRecipe = canManageRecipe && hasModule('item');
 
   const loadProducts = () => {
     if (selectedProjectId === 'all') {
@@ -68,8 +107,11 @@ const ProductPage = ({
     }
     setLoading(true);
     api
-      .get<{ data: Product[] }>(`${resourceBase}/products${listQuery}`)
-      .then((res) => setProducts(res.data))
+      .get<PaginatedResponse<Product>>(`${resourceBase}/products${pagedQuery}`)
+      .then((res) => {
+        setProducts(res.data);
+        setMeta(metaFrom(res));
+      })
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat data produk'))
       .finally(() => setLoading(false));
   };
@@ -77,7 +119,7 @@ const ProductPage = ({
   useEffect(() => {
     loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, apiBasePrefix, scopeMode]);
+  }, [selectedProjectId, apiBasePrefix, scopeMode, page]);
 
   const openCreateForm = () => {
     setEditing(null);
@@ -174,17 +216,27 @@ const ProductPage = ({
     <div className="dashboard-content">
       <PageHeader
         title="Produk"
-        subtitle="Kelola barang jadi beserta resep (BOM) bahan bakunya"
+        subtitle={
+          showRecipe ? 'Kelola barang jadi beserta resep (BOM) bahan bakunya' : 'Katalog barang jadi'
+        }
         actions={
           <>
-            <button className="btn-secondary" onClick={() => setImportOpen(true)} disabled={selectedProjectId === 'all'}>
-              <UploadCloud size={18} />
-              Import Stok
-            </button>
-            <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
-              <Plus size={18} />
-              Tambah Produk
-            </button>
+            {showImport && (
+              <button
+                className="btn-secondary"
+                onClick={() => setImportOpen(true)}
+                disabled={selectedProjectId === 'all'}
+              >
+                <UploadCloud size={18} />
+                Import Stok
+              </button>
+            )}
+            {canCreate && (
+              <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
+                <Plus size={18} />
+                Tambah Produk
+              </button>
+            )}
           </>
         }
       />
@@ -210,16 +262,16 @@ const ProductPage = ({
       ) : (
         <>
           <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(1, 1fr)' }}>
-            <StatCard label="Total Produk" value={products.length} icon={<PackagePlus size={18} />} />
+            <StatCard label="Total Produk" value={meta.total} icon={<PackagePlus size={18} />} />
           </div>
 
-          <TableCard title="Daftar Produk" count={products.length}>
+          <TableCard title="Daftar Produk" count={meta.total}>
             <thead>
               <tr>
                 <th>SKU</th>
                 <th>NAMA PRODUK</th>
                 <th>SATUAN</th>
-                <th>HPP/UNIT</th>
+                {showStockColumns && <th>HPP/UNIT</th>}
                 <th>HARGA JUAL</th>
                 <th>DIBUAT</th>
                 <th></th>
@@ -232,9 +284,11 @@ const ProductPage = ({
                     <td style={{ color: 'var(--text-muted)' }}>{product.sku}</td>
                     <td>{product.name}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{product.unit}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>
-                      {product.average_cost ? formatCurrency(product.average_cost) : '-'}
-                    </td>
+                    {showStockColumns && (
+                      <td style={{ color: 'var(--text-muted)' }}>
+                        {product.average_cost ? formatCurrency(product.average_cost) : '-'}
+                      </td>
+                    )}
                     <td style={{ color: 'var(--text-muted)' }}>
                       {product.default_price ? formatCurrency(product.default_price) : '-'}
                     </td>
@@ -242,30 +296,40 @@ const ProductPage = ({
                       {new Date(product.created_at).toLocaleDateString('id-ID')}
                     </td>
                     <td style={{ textAlign: 'right', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                      <button
-                        style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}
-                        onClick={() => openRecipeModal(product)}
-                        title="Kelola Resep"
-                      >
-                        <ListTree size={16} />
-                      </button>
-                      <button
-                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                        onClick={() => openEditForm(product)}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
-                        onClick={() => setConfirmDelete(product)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      {showRecipe && (
+                        <button
+                          style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}
+                          onClick={() => openRecipeModal(product)}
+                          title="Kelola Resep"
+                        >
+                          <ListTree size={16} />
+                        </button>
+                      )}
+                      {canUpdate && (
+                        <button
+                          style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          onClick={() => openEditForm(product)}
+                          title="Ubah Produk"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
+                          onClick={() => setConfirmDelete(product)}
+                          title="Hapus Produk"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
             </tbody>
           </TableCard>
+
+          <Pagination page={page} meta={meta} onChange={setPage} label="produk" />
         </>
       )}
 
@@ -403,15 +467,17 @@ const ProductPage = ({
         onCancel={() => setConfirmDelete(null)}
       />
 
-      <ImportModal
-        isOpen={importOpen}
-        onClose={() => setImportOpen(false)}
-        title="Import Stok Produk"
-        endpoint={`${resourceBase}/imports/products/stock`}
-        projectId={scopeMode === 'query' ? selectedProjectId : undefined}
-        templateHint="Kolom: SKU | Gudang (kode) | Qty | HPP per Unit (opsional). SKU dan Gudang harus sudah terdaftar di project ini. HPP per unit boleh dikosongkan kalau hanya ingin koreksi jumlah stok."
-        onSuccess={loadProducts}
-      />
+      {showImport && (
+        <ImportModal
+          isOpen={importOpen}
+          onClose={() => setImportOpen(false)}
+          title="Import Stok Produk"
+          endpoint={`${resourceBase}/imports/products/stock`}
+          projectId={scopeMode === 'query' ? selectedProjectId : undefined}
+          templateHint="Kolom: SKU | Gudang (kode) | Qty | HPP per Unit (opsional). SKU dan Gudang harus sudah terdaftar di project ini. HPP per unit boleh dikosongkan kalau hanya ingin koreksi jumlah stok."
+          onSuccess={loadProducts}
+        />
+      )}
     </div>
   );
 };

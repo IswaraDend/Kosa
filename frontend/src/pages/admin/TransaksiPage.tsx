@@ -7,7 +7,6 @@ const TransaksiPage = () => (
     projectEndpoint="/admin/projects"
     includeAllOption={false}
     showProjectPicker={false}
-    canCreate
   />
 );
 

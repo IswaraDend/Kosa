@@ -9,12 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func listWarehousesByProject(projectID uint) ([]models.Warehouse, error) {
+func listWarehousesByProject(projectID uint, page Pagination) ([]models.Warehouse, int64, error) {
 	warehouses := []models.Warehouse{}
-	err := database.DB.Model(&models.Warehouse{}).
+	query := database.DB.Model(&models.Warehouse{}).
 		Where("project_id = ?", projectID).
-		Order("created_at desc").Find(&warehouses).Error
-	return warehouses, err
+		Order("created_at desc")
+	total, err := paginate(query, page, &warehouses)
+	return warehouses, total, err
 }
 
 func getWarehouseScoped(id, projectID uint) (models.Warehouse, error) {
@@ -49,18 +50,20 @@ func deleteWarehouseScoped(id, projectID uint) error {
 // ---- Super Admin routes (global, project_id optional via query) ----
 
 func ListWarehouses(c *gin.Context) {
+	page := paginationFrom(c)
 	query := database.DB.Model(&models.Warehouse{})
 	if projectID := queryUintPtr(c, "project_id"); projectID != nil {
 		query = query.Where("project_id = ?", *projectID)
 	}
 
 	warehouses := []models.Warehouse{}
-	if err := query.Order("created_at desc").Find(&warehouses).Error; err != nil {
+	total, err := paginate(query.Order("created_at desc"), page, &warehouses)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data gudang"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": warehouses, "total": len(warehouses)})
+	c.JSON(http.StatusOK, listResponse(warehouses, total, page))
 }
 
 func GetWarehouse(c *gin.Context) {
@@ -170,12 +173,13 @@ func DeleteWarehouse(c *gin.Context) {
 
 func ListWarehousesForProject(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
-	warehouses, err := listWarehousesByProject(projectID)
+	page := paginationFrom(c)
+	warehouses, total, err := listWarehousesByProject(projectID, page)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data gudang"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": warehouses, "total": len(warehouses)})
+	c.JSON(http.StatusOK, listResponse(warehouses, total, page))
 }
 
 func GetWarehouseForProject(c *gin.Context) {

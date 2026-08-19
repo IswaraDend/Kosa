@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GoogleLogin } from '@react-oauth/google';
 import { Mail, Lock, Eye, Server, Warehouse, ArrowRightLeft, ArrowRight } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import './Login.css';
@@ -147,24 +146,6 @@ const Login = () => {
             </button>
           </form>
 
-          <div className="divider">ATAU</div>
-          
-          <div className="sso-btn-wrapper">
-            <GoogleLogin
-              onSuccess={credentialResponse => {
-                // TODO: kirim credentialResponse.credential ke backend untuk verifikasi & dapatkan JWT asli
-                console.log(credentialResponse);
-              }}
-              onError={() => {
-                console.log('Login Failed');
-              }}
-              theme="filled_black"
-              shape="rectangular"
-              text="signin_with"
-              width="400px"
-            />
-          </div>
-          
           <p className="terms-text">
             Dengan masuk, kamu menyetujui Ketentuan Layanan dan Kebijakan Privasi Kosa.
           </p>

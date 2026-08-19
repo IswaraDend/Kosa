@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Plus, Factory } from 'lucide-react';
-import { api, ApiError, buildQuery } from '../../lib/api';
+import { api, ApiError, buildQuery , type PaginatedResponse } from '../../lib/api';
 import { formatCurrency } from '../../lib/format';
 import type { Product, ProductRecipeLine, ProductionRecord, Warehouse } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
+import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import TableCard from '../../components/TableCard';
+import Pagination from '../../components/Pagination';
 import Modal from '../../components/Modal';
 import ProjectPicker from '../../components/ProjectPicker';
+import { makeCan } from '../../lib/permissions';
 import '../Dashboard.css';
 
 interface ProduksiFormState {
@@ -27,6 +30,8 @@ interface ProduksiPageProps {
   projectEndpoint?: string;
   includeAllOption?: boolean;
   showProjectPicker?: boolean;
+  /** Granted permission codes. Undefined = no per-action gating (Super Admin / Admin). */
+  permissions?: string[];
 }
 
 const ProduksiPage = ({
@@ -35,9 +40,12 @@ const ProduksiPage = ({
   projectEndpoint = '/super-admin/projects',
   includeAllOption = true,
   showProjectPicker = true,
+  permissions,
 }: ProduksiPageProps) => {
+  const can = makeCan(permissions);
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
   useProjectAutoSelect(projectEndpoint, !showProjectPicker);
+  const { page, setPage, meta, setMeta } = usePagination(selectedProjectId);
   const [productions, setProductions] = useState<ProductionRecord[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -51,6 +59,15 @@ const ProduksiPage = ({
 
   const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
   const listQuery = scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId }) : '';
+  // Separate from listQuery on purpose: listQuery still scopes the auxiliary
+  // dropdown fetches (warehouses, items, customers) which must stay complete,
+  // while only the main table asks for a page.
+  const pagedQuery = buildQuery({
+    ...(scopeMode === 'query' ? { project_id: selectedProjectId } : {}),
+    page,
+    per_page: PER_PAGE,
+  });
+
 
   const loadProductions = () => {
     if (selectedProjectId === 'all') {
@@ -60,8 +77,11 @@ const ProduksiPage = ({
     }
     setLoading(true);
     api
-      .get<{ data: ProductionRecord[] }>(`${resourceBase}/productions${listQuery}`)
-      .then((res) => setProductions(res.data))
+      .get<PaginatedResponse<ProductionRecord>>(`${resourceBase}/productions${pagedQuery}`)
+      .then((res) => {
+        setProductions(res.data);
+        setMeta(metaFrom(res));
+      })
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat riwayat produksi'))
       .finally(() => setLoading(false));
   };
@@ -69,7 +89,7 @@ const ProduksiPage = ({
   useEffect(() => {
     loadProductions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, apiBasePrefix, scopeMode]);
+  }, [selectedProjectId, apiBasePrefix, scopeMode, page]);
 
   useEffect(() => {
     if (selectedProjectId === 'all') {
@@ -138,10 +158,12 @@ const ProduksiPage = ({
         title="Produksi"
         subtitle="Rakit produk dari bahan baku — stok bahan otomatis berkurang sesuai resep"
         actions={
-          <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
-            <Plus size={18} />
-            Buat Produksi
-          </button>
+          can('production.create') && (
+            <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
+              <Plus size={18} />
+              Buat Produksi
+            </button>
+          )
         }
       />
 
@@ -166,10 +188,10 @@ const ProduksiPage = ({
       ) : (
         <>
           <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(1, 1fr)' }}>
-            <StatCard label="Total Produksi" value={productions.length} icon={<Factory size={18} />} />
+            <StatCard label="Total Produksi" value={meta.total} icon={<Factory size={18} />} />
           </div>
 
-          <TableCard title="Riwayat Produksi" count={productions.length}>
+          <TableCard title="Riwayat Produksi" count={meta.total}>
             <thead>
               <tr>
                 <th>PRODUK</th>
@@ -198,6 +220,8 @@ const ProduksiPage = ({
                 ))}
             </tbody>
           </TableCard>
+
+          <Pagination page={page} meta={meta} onChange={setPage} label="produksi" />
         </>
       )}
 

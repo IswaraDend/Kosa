@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Plus, Package, Trash2, Pencil, UploadCloud } from 'lucide-react';
-import { api, ApiError, buildQuery } from '../../lib/api';
+import { api, ApiError, buildQuery , type PaginatedResponse } from '../../lib/api';
 import type { Item } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
+import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import TableCard from '../../components/TableCard';
+import Pagination from '../../components/Pagination';
 import Modal from '../../components/Modal';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ProjectPicker from '../../components/ProjectPicker';
 import ImportModal from '../../components/ImportModal';
+import { makeCan } from '../../lib/permissions';
 import '../Dashboard.css';
 
 interface ItemFormState {
@@ -27,6 +30,8 @@ interface ItemPageProps {
   projectEndpoint?: string;
   includeAllOption?: boolean;
   showProjectPicker?: boolean;
+  /** Granted permission codes. Undefined = no per-action gating (Super Admin / Admin). */
+  permissions?: string[];
 }
 
 const ItemPage = ({
@@ -35,9 +40,12 @@ const ItemPage = ({
   projectEndpoint = '/super-admin/projects',
   includeAllOption = true,
   showProjectPicker = true,
+  permissions,
 }: ItemPageProps) => {
+  const can = makeCan(permissions);
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
   useProjectAutoSelect(projectEndpoint, !showProjectPicker);
+  const { page, setPage, meta, setMeta } = usePagination(selectedProjectId);
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -50,7 +58,15 @@ const ItemPage = ({
   const [importOpen, setImportOpen] = useState(false);
 
   const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
-  const listQuery = scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId }) : '';
+  // Separate from listQuery on purpose: listQuery still scopes the auxiliary
+  // dropdown fetches (warehouses, items, customers) which must stay complete,
+  // while only the main table asks for a page.
+  const pagedQuery = buildQuery({
+    ...(scopeMode === 'query' ? { project_id: selectedProjectId } : {}),
+    page,
+    per_page: PER_PAGE,
+  });
+
 
   const loadItems = () => {
     if (selectedProjectId === 'all') {
@@ -60,8 +76,11 @@ const ItemPage = ({
     }
     setLoading(true);
     api
-      .get<{ data: Item[] }>(`${resourceBase}/items${listQuery}`)
-      .then((res) => setItems(res.data))
+      .get<PaginatedResponse<Item>>(`${resourceBase}/items${pagedQuery}`)
+      .then((res) => {
+        setItems(res.data);
+        setMeta(metaFrom(res));
+      })
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat data item'))
       .finally(() => setLoading(false));
   };
@@ -69,7 +88,7 @@ const ItemPage = ({
   useEffect(() => {
     loadItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, apiBasePrefix, scopeMode]);
+  }, [selectedProjectId, apiBasePrefix, scopeMode, page]);
 
   const openCreateForm = () => {
     setEditing(null);
@@ -120,14 +139,18 @@ const ItemPage = ({
         subtitle="Kelola master data barang untuk project terpilih"
         actions={
           <>
-            <button className="btn-secondary" onClick={() => setImportOpen(true)} disabled={selectedProjectId === 'all'}>
-              <UploadCloud size={18} />
-              Import Stok
-            </button>
-            <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
-              <Plus size={18} />
-              Tambah Item
-            </button>
+            {can('item.import') && (
+              <button className="btn-secondary" onClick={() => setImportOpen(true)} disabled={selectedProjectId === 'all'}>
+                <UploadCloud size={18} />
+                Import Stok
+              </button>
+            )}
+            {can('item.create') && (
+              <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
+                <Plus size={18} />
+                Tambah Item
+              </button>
+            )}
           </>
         }
       />
@@ -153,10 +176,10 @@ const ItemPage = ({
       ) : (
         <>
           <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(1, 1fr)' }}>
-            <StatCard label="Total Item" value={items.length} icon={<Package size={18} />} />
+            <StatCard label="Total Item" value={meta.total} icon={<Package size={18} />} />
           </div>
 
-          <TableCard title="Daftar Item" count={items.length}>
+          <TableCard title="Daftar Item" count={meta.total}>
             <thead>
               <tr>
                 <th>SKU</th>
@@ -177,23 +200,29 @@ const ItemPage = ({
                       {new Date(item.created_at).toLocaleDateString('id-ID')}
                     </td>
                     <td style={{ textAlign: 'right', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                      <button
-                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                        onClick={() => openEditForm(item)}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
-                        onClick={() => setConfirmDelete(item)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      {can('item.update') && (
+                        <button
+                          style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                          onClick={() => openEditForm(item)}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
+                      {can('item.delete') && (
+                        <button
+                          style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
+                          onClick={() => setConfirmDelete(item)}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
             </tbody>
           </TableCard>
+
+          <Pagination page={page} meta={meta} onChange={setPage} label="item" />
         </>
       )}
 

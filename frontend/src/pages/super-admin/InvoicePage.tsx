@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react';
 import { Plus, Receipt, Trash2, Printer, Eye } from 'lucide-react';
-import { api, ApiError, buildQuery } from '../../lib/api';
+import { api, ApiError, buildQuery , type PaginatedResponse } from '../../lib/api';
 import { formatCurrency } from '../../lib/format';
 import type { Customer, InvoiceRecord, InvoiceStatus, Product, Warehouse } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
+import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import TableCard from '../../components/TableCard';
+import Pagination from '../../components/Pagination';
 import Badge from '../../components/Badge';
 import Modal from '../../components/Modal';
 import ProjectPicker from '../../components/ProjectPicker';
 import InvoicePrintView from '../../components/InvoicePrintView';
+import { makeCan } from '../../lib/permissions';
 import '../Dashboard.css';
 
 interface DraftLine {
@@ -39,6 +42,8 @@ interface InvoicePageProps {
   projectEndpoint?: string;
   includeAllOption?: boolean;
   showProjectPicker?: boolean;
+  /** Granted permission codes. Undefined = no per-action gating (Super Admin / Admin). */
+  permissions?: string[];
 }
 
 const InvoicePage = ({
@@ -47,9 +52,12 @@ const InvoicePage = ({
   projectEndpoint = '/super-admin/projects',
   includeAllOption = true,
   showProjectPicker = true,
+  permissions,
 }: InvoicePageProps) => {
+  const can = makeCan(permissions);
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
   useProjectAutoSelect(projectEndpoint, !showProjectPicker);
+  const { page, setPage, meta, setMeta } = usePagination(selectedProjectId);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -67,6 +75,15 @@ const InvoicePage = ({
 
   const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
   const listQuery = scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId }) : '';
+  // Separate from listQuery on purpose: listQuery still scopes the auxiliary
+  // dropdown fetches (warehouses, items, customers) which must stay complete,
+  // while only the main table asks for a page.
+  const pagedQuery = buildQuery({
+    ...(scopeMode === 'query' ? { project_id: selectedProjectId } : {}),
+    page,
+    per_page: PER_PAGE,
+  });
+
 
   const loadInvoices = () => {
     if (selectedProjectId === 'all') {
@@ -76,8 +93,11 @@ const InvoicePage = ({
     }
     setLoading(true);
     api
-      .get<{ data: InvoiceRecord[] }>(`${resourceBase}/invoices${listQuery}`)
-      .then((res) => setInvoices(res.data))
+      .get<PaginatedResponse<InvoiceRecord>>(`${resourceBase}/invoices${pagedQuery}`)
+      .then((res) => {
+        setInvoices(res.data);
+        setMeta(metaFrom(res));
+      })
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat data invoice'))
       .finally(() => setLoading(false));
   };
@@ -85,7 +105,7 @@ const InvoicePage = ({
   useEffect(() => {
     loadInvoices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, apiBasePrefix, scopeMode]);
+  }, [selectedProjectId, apiBasePrefix, scopeMode, page]);
 
   useEffect(() => {
     if (selectedProjectId === 'all') {
@@ -188,10 +208,12 @@ const InvoicePage = ({
         title="Invoice"
         subtitle="Jual produk ke customer dan kelola dokumen invoice"
         actions={
-          <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
-            <Plus size={18} />
-            Buat Invoice
-          </button>
+          can('invoice.create') && (
+            <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
+              <Plus size={18} />
+              Buat Invoice
+            </button>
+          )
         }
       />
 
@@ -216,12 +238,12 @@ const InvoicePage = ({
       ) : (
         <>
           <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-            <StatCard label="Total Invoice" value={invoices.length} icon={<Receipt size={18} />} />
-            <StatCard label="Total Omzet" value={formatCurrency(totalOmzet)} icon={<Receipt size={18} />} />
-            <StatCard label="Total Margin" value={formatCurrency(totalMargin)} icon={<Receipt size={18} />} />
+            <StatCard label="Total Invoice" value={meta.total} icon={<Receipt size={18} />} />
+            <StatCard label="Omzet (halaman ini)" value={formatCurrency(totalOmzet)} icon={<Receipt size={18} />} />
+            <StatCard label="Margin (halaman ini)" value={formatCurrency(totalMargin)} icon={<Receipt size={18} />} />
           </div>
 
-          <TableCard title="Riwayat Invoice" count={invoices.length}>
+          <TableCard title="Riwayat Invoice" count={meta.total}>
             <thead>
               <tr>
                 <th>NO. INVOICE</th>
@@ -244,7 +266,7 @@ const InvoicePage = ({
                     <td>{formatCurrency(inv.subtotal)}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{formatCurrency(inv.subtotal - inv.total_hpp)}</td>
                     <td>
-                      {inv.status === 'cancelled' ? (
+                      {inv.status === 'cancelled' || !can('invoice.update') ? (
                         <Badge label={statusLabel[inv.status]} variant={statusVariant[inv.status]} />
                       ) : (
                         <select
@@ -282,6 +304,8 @@ const InvoicePage = ({
                 ))}
             </tbody>
           </TableCard>
+
+          <Pagination page={page} meta={meta} onChange={setPage} label="invoice" />
         </>
       )}
 

@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Plus, ArrowDownCircle, ArrowUpCircle, ArrowRightLeft } from 'lucide-react';
-import { api, ApiError, buildQuery } from '../../lib/api';
+import { api, ApiError, buildQuery , type PaginatedResponse } from '../../lib/api';
 import type { Item, TransactionRecord, TransactionType, Warehouse } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
+import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import TableCard from '../../components/TableCard';
+import Pagination from '../../components/Pagination';
 import Badge from '../../components/Badge';
 import Modal from '../../components/Modal';
 import ProjectPicker from '../../components/ProjectPicker';
+import { makeCan } from '../../lib/permissions';
 import '../Dashboard.css';
 
 const typeLabel: Record<TransactionType, string> = { in: 'Masuk', out: 'Keluar', transfer: 'Transfer' };
@@ -40,8 +43,9 @@ interface TransaksiPageProps {
   scopeMode?: 'query' | 'path';
   projectEndpoint?: string;
   includeAllOption?: boolean;
-  canCreate?: boolean;
   showProjectPicker?: boolean;
+  /** Granted permission codes. Undefined = no per-action gating (Super Admin / Admin). */
+  permissions?: string[];
 }
 
 const TransaksiPage = ({
@@ -49,15 +53,16 @@ const TransaksiPage = ({
   scopeMode = 'query',
   projectEndpoint = '/super-admin/projects',
   includeAllOption = true,
-  canCreate = true,
   showProjectPicker = true,
+  permissions,
 }: TransaksiPageProps) => {
+  const canCreate = makeCan(permissions)('transaction.create');
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
   useProjectAutoSelect(projectEndpoint, !showProjectPicker);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [items, setItems] = useState<Item[]>([]);
-  const [typeFilter, setTypeFilter] = useState<'all' | TransactionType>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | TransactionType>('all');  const { page, setPage, meta, setMeta } = usePagination(`${selectedProjectId}|${typeFilter}`);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -74,13 +79,18 @@ const TransaksiPage = ({
       return;
     }
     setLoading(true);
-    const query =
-      scopeMode === 'query'
-        ? buildQuery({ project_id: selectedProjectId, type: typeFilter === 'all' ? undefined : typeFilter })
-        : buildQuery({ type: typeFilter === 'all' ? undefined : typeFilter });
+    const query = buildQuery({
+      ...(scopeMode === 'query' ? { project_id: selectedProjectId } : {}),
+      type: typeFilter === 'all' ? undefined : typeFilter,
+      page,
+      per_page: PER_PAGE,
+    });
     api
-      .get<{ data: TransactionRecord[] }>(`${resourceBase}/transactions${query}`)
-      .then((res) => setTransactions(res.data))
+      .get<PaginatedResponse<TransactionRecord>>(`${resourceBase}/transactions${query}`)
+      .then((res) => {
+        setTransactions(res.data);
+        setMeta(metaFrom(res));
+      })
       .catch((err: ApiError) => setErrorMsg(err.message || 'Gagal memuat transaksi'))
       .finally(() => setLoading(false));
   };
@@ -88,7 +98,7 @@ const TransaksiPage = ({
   useEffect(() => {
     loadTransactions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, typeFilter, apiBasePrefix, scopeMode]);
+  }, [selectedProjectId, typeFilter, apiBasePrefix, scopeMode, page]);
 
   useEffect(() => {
     if (selectedProjectId === 'all' || !canCreate) {
@@ -180,9 +190,9 @@ const TransaksiPage = ({
       ) : (
         <>
           <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-            <StatCard label="Total Masuk" value={totalMasuk} icon={<ArrowDownCircle size={18} />} />
-            <StatCard label="Total Keluar" value={totalKeluar} icon={<ArrowUpCircle size={18} />} />
-            <StatCard label="Total Transfer" value={totalTransfer} icon={<ArrowRightLeft size={18} />} />
+            <StatCard label="Masuk (halaman ini)" value={totalMasuk} icon={<ArrowDownCircle size={18} />} />
+            <StatCard label="Keluar (halaman ini)" value={totalKeluar} icon={<ArrowUpCircle size={18} />} />
+            <StatCard label="Transfer (halaman ini)" value={totalTransfer} icon={<ArrowRightLeft size={18} />} />
           </div>
 
           <div className="filter-group">
@@ -197,7 +207,7 @@ const TransaksiPage = ({
             ))}
           </div>
 
-          <TableCard title="Riwayat Transaksi" count={transactions.length}>
+          <TableCard title="Riwayat Transaksi" count={meta.total}>
             <thead>
               <tr>
                 <th>TIPE</th>
@@ -228,6 +238,8 @@ const TransaksiPage = ({
                 ))}
             </tbody>
           </TableCard>
+
+          <Pagination page={page} meta={meta} onChange={setPage} label="transaksi" />
         </>
       )}
 

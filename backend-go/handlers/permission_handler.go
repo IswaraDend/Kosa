@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"backend-go/database"
 	"backend-go/models"
@@ -9,18 +10,77 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// permissionsForProject returns only the catalogue entries whose Module the
+// project actually has enabled. This is what makes "a disabled feature is not
+// grantable" true: a project running Product alone must not be offered
+// warehouse.view / transaction.create / report.view checkboxes it can never use.
+//
+// A project with no enabled modules yields an empty catalogue, not the full one.
+func permissionsForProject(projectID uint) ([]models.Permission, error) {
+	modules := getProjectModules(projectID)
+	permissions := []models.Permission{}
+	if len(modules) == 0 {
+		return permissions, nil
+	}
+	err := database.DB.Where("module IN ?", modules).
+		Order("module, code").Find(&permissions).Error
+	return permissions, err
+}
+
+// permissionEnabledForProject reports whether granting permissionID to someone
+// in projectID would mean anything — i.e. whether the permission's module is
+// switched on for that project.
+func permissionEnabledForProject(permissionID, projectID uint) bool {
+	var permission models.Permission
+	if err := database.DB.First(&permission, permissionID).Error; err != nil {
+		return false
+	}
+	for _, m := range getProjectModules(projectID) {
+		if m == permission.Module {
+			return true
+		}
+	}
+	return false
+}
+
+// ListPermissions serves the Super Admin catalogue. Without project_id it
+// returns everything (Super Admin is deliberately not module-gated); with
+// project_id it narrows to that project's enabled modules, which is what the
+// "assign to member" section uses so it cannot offer dead permissions.
 func ListPermissions(c *gin.Context) {
+	if projectID := queryUintPtr(c, "project_id"); projectID != nil {
+		permissions, err := permissionsForProject(*projectID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data permission"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": permissions, "total": len(permissions)})
+		return
+	}
+
 	query := database.DB.Model(&models.Permission{})
 	if module := c.Query("module"); module != "" {
 		query = query.Where("module = ?", module)
 	}
 
 	permissions := []models.Permission{}
-	if err := query.Find(&permissions).Error; err != nil {
+	if err := query.Order("module, code").Find(&permissions).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data permission"})
 		return
 	}
 
+	c.JSON(http.StatusOK, gin.H{"data": permissions, "total": len(permissions)})
+}
+
+// ListPermissionsForProject is the Admin-facing catalogue: always scoped to
+// the project from context, never the global list.
+func ListPermissionsForProject(c *gin.Context) {
+	projectID := c.MustGet("projectID").(uint)
+	permissions, err := permissionsForProject(projectID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data permission"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"data": permissions, "total": len(permissions)})
 }
 
@@ -116,6 +176,14 @@ type GrantPermissionRequest struct {
 	PermissionID uint `json:"permission_id" binding:"required"`
 }
 
+func grantPermissionCore(userRoleID, permissionID, grantedByID uint) (models.MemberPermission, error) {
+	var granted models.MemberPermission
+	err := database.DB.Where(models.MemberPermission{UserRoleID: userRoleID, PermissionID: permissionID}).
+		Attrs(models.MemberPermission{GrantedByID: grantedByID, GrantedAt: time.Now()}).
+		FirstOrCreate(&granted).Error
+	return granted, err
+}
+
 func GrantPermission(c *gin.Context) {
 	userRoleID, ok := paramUint(c, "userRoleId")
 	if !ok {
@@ -129,10 +197,7 @@ func GrantPermission(c *gin.Context) {
 		return
 	}
 
-	var granted models.MemberPermission
-	err := database.DB.Where(models.MemberPermission{UserRoleID: userRoleID, PermissionID: req.PermissionID}).
-		Attrs(models.MemberPermission{GrantedByID: currentUserID(c)}).
-		FirstOrCreate(&granted).Error
+	granted, err := grantPermissionCore(userRoleID, req.PermissionID, currentUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal grant permission"})
 		return
@@ -168,6 +233,10 @@ func ListGrantedPermissionsScoped(c *gin.Context) {
 	ListGrantedPermissions(c)
 }
 
+// GrantPermissionScoped additionally refuses to grant a permission whose
+// module is switched off for this project. Without this check an Admin could
+// accumulate grants that RequireModule would reject at request time anyway —
+// dead rows that make the permission screen lie about what a member can do.
 func GrantPermissionScoped(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
 	userRoleID, ok := paramUint(c, "userRoleId")
@@ -175,7 +244,25 @@ func GrantPermissionScoped(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User-role tidak ditemukan di project ini"})
 		return
 	}
-	GrantPermission(c)
+
+	var req GrantPermissionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "permission_id wajib diisi"})
+		return
+	}
+
+	if !permissionEnabledForProject(req.PermissionID, projectID) {
+		c.JSON(http.StatusConflict, gin.H{"error": "Permission ini milik fitur yang tidak diaktifkan untuk project ini"})
+		return
+	}
+
+	granted, err := grantPermissionCore(userRoleID, req.PermissionID, currentUserID(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal grant permission"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, granted)
 }
 
 func RevokePermissionScoped(c *gin.Context) {

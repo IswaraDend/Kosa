@@ -9,12 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func listItemsByProject(projectID uint) ([]models.Item, error) {
+func listItemsByProject(projectID uint, page Pagination) ([]models.Item, int64, error) {
 	items := []models.Item{}
-	err := database.DB.Model(&models.Item{}).
+	query := database.DB.Model(&models.Item{}).
 		Where("project_id = ?", projectID).
-		Order("created_at desc").Find(&items).Error
-	return items, err
+		Order("created_at desc")
+	total, err := paginate(query, page, &items)
+	return items, total, err
 }
 
 func getItemScoped(id, projectID uint) (models.Item, error) {
@@ -52,18 +53,20 @@ func getItemStockScoped(id, projectID uint) ([]models.Stock, error) {
 // ---- Super Admin routes (global, project_id optional via query) ----
 
 func ListItems(c *gin.Context) {
+	page := paginationFrom(c)
 	query := database.DB.Model(&models.Item{})
 	if projectID := queryUintPtr(c, "project_id"); projectID != nil {
 		query = query.Where("project_id = ?", *projectID)
 	}
 
 	items := []models.Item{}
-	if err := query.Order("created_at desc").Find(&items).Error; err != nil {
+	total, err := paginate(query.Order("created_at desc"), page, &items)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data item"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": items, "total": len(items)})
+	c.JSON(http.StatusOK, listResponse(items, total, page))
 }
 
 func GetItem(c *gin.Context) {
@@ -183,12 +186,13 @@ func GetItemStock(c *gin.Context) {
 
 func ListItemsForProject(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
-	items, err := listItemsByProject(projectID)
+	page := paginationFrom(c)
+	items, total, err := listItemsByProject(projectID, page)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data item"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": items, "total": len(items)})
+	c.JSON(http.StatusOK, listResponse(items, total, page))
 }
 
 func GetItemForProject(c *gin.Context) {

@@ -76,10 +76,37 @@ func getProjectModules(projectID uint) []string {
 	return modules
 }
 
+// pruneMemberPermissions deletes every MemberPermission in the project whose
+// permission belongs to a module that is not in `enabled`.
+//
+// Without this, disabling a module leaves grants behind that no screen shows
+// (the permission catalogue only lists enabled modules) and no request honours
+// (RequireModule rejects them anyway) — so re-enabling the module later would
+// silently restore access somebody thought they had revoked.
+func pruneMemberPermissions(tx *gorm.DB, projectID uint, enabled []string) error {
+	userRoleIDs := tx.Model(&models.UserRole{}).
+		Select("user_roles.id").
+		Joins("JOIN roles ON roles.id = user_roles.role_id").
+		Where("roles.project_id = ?", projectID)
+
+	query := tx.Where("user_role_id IN (?)", userRoleIDs)
+
+	// An empty module set means every grant in the project is stale, so the
+	// permission filter is skipped entirely rather than built as "NOT IN ()".
+	if len(enabled) > 0 {
+		stalePermissionIDs := tx.Model(&models.Permission{}).
+			Select("id").Where("module NOT IN ?", enabled)
+		query = query.Where("permission_id IN (?)", stalePermissionIDs)
+	}
+
+	return query.Delete(&models.MemberPermission{}).Error
+}
+
 // setProjectModules replaces the full set of enabled modules for a project:
 // expands requested modules to include their dependencies (see
 // models.ExpandModules), then deletes and re-inserts the ProjectModule rows
 // in one DB transaction so a partial write can never leave a stale mix.
+// Member grants for now-disabled modules are pruned in the same transaction.
 func setProjectModules(projectID uint, requested []string) error {
 	valid := make([]string, 0, len(requested))
 	for _, m := range requested {
@@ -98,13 +125,20 @@ func setProjectModules(projectID uint, requested []string) error {
 				return err
 			}
 		}
-		return nil
+		return pruneMemberPermissions(tx, projectID, expanded)
 	})
 }
 
 func ListProjects(c *gin.Context) {
+	page := paginationFrom(c)
+	query := database.DB.Model(&models.Project{})
+	if term := searchTerm(c); term != "" {
+		query = query.Where("LOWER(name) LIKE ? OR LOWER(code) LIKE ?", term, term)
+	}
+
 	var projects []models.Project
-	if err := database.DB.Order("created_at desc").Find(&projects).Error; err != nil {
+	total, err := paginate(query.Order("created_at desc"), page, &projects)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data project"})
 		return
 	}
@@ -114,7 +148,7 @@ func ListProjects(c *gin.Context) {
 		data = append(data, buildProjectResponse(p))
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": data, "total": len(data)})
+	c.JSON(http.StatusOK, listResponse(data, total, page))
 }
 
 func GetProject(c *gin.Context) {
@@ -236,6 +270,10 @@ func ToggleProjectStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, buildProjectResponse(project))
 }
 
+// listProjectsForUserRole is deliberately NOT paginated: it returns only the
+// projects one user belongs to, which is bounded by their own memberships, and
+// the frontend hooks that auto-select a project (useProjectAutoSelect,
+// useMemberPermissions) need the whole set to decide which one is current.
 func listProjectsForUserRole(userID uint, roleName string) ([]models.Project, error) {
 	var projects []models.Project
 	err := database.DB.

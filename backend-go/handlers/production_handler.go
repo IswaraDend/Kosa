@@ -10,9 +10,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-func listProductionsByProject(projectID uint, warehouseID *uint, from, to string) ([]models.Production, error) {
+func listProductionsByProject(projectID uint, warehouseID *uint, from, to string, page Pagination) ([]models.Production, int64, error) {
 	query := database.DB.Model(&models.Production{}).
 		Preload("Product").Preload("Warehouse").Preload("Transaction.Items.Item").
 		Where("project_id = ?", projectID)
@@ -20,16 +21,11 @@ func listProductionsByProject(projectID uint, warehouseID *uint, from, to string
 	if warehouseID != nil {
 		query = query.Where("warehouse_id = ?", *warehouseID)
 	}
-	if from != "" {
-		query = query.Where("created_at >= ?", from)
-	}
-	if to != "" {
-		query = query.Where("created_at <= ?", to)
-	}
+	query = applyCreatedAtRange(query, "created_at", from, to)
 
 	productions := []models.Production{}
-	err := query.Order("created_at desc").Find(&productions).Error
-	return productions, err
+	total, err := paginate(query.Order("created_at desc"), page, &productions)
+	return productions, total, err
 }
 
 func getProductionScoped(id, projectID uint) (models.Production, error) {
@@ -113,7 +109,11 @@ func createProductionCore(projectID, warehouseID, productID, callerID uint, quan
 
 func adjustProductStock(tx *gorm.DB, projectID, warehouseID, productID uint, delta float64) error {
 	var ps models.ProductStock
-	err := tx.Where("warehouse_id = ? AND product_id = ?", warehouseID, productID).First(&ps).Error
+	// Same reasoning as adjustStock: a running balance must be locked for the
+	// duration of the transaction, or a concurrent production/sale on the same
+	// product overwrites this one's result.
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("warehouse_id = ? AND product_id = ?", warehouseID, productID).First(&ps).Error
 
 	if err == gorm.ErrRecordNotFound {
 		ps = models.ProductStock{ProjectID: projectID, WarehouseID: warehouseID, ProductID: productID, Quantity: 0}
@@ -138,14 +138,17 @@ func adjustProductStock(tx *gorm.DB, projectID, warehouseID, productID uint, del
 // the produced quantity is written to ProductStock, since it needs the
 // pre-event total quantity.
 func applyProductCostLayer(tx *gorm.DB, productID uint, incomingQty, unitCost float64) error {
-	var oldQty float64
-	if err := tx.Model(&models.ProductStock{}).Where("product_id = ?", productID).
-		Select("COALESCE(SUM(quantity), 0)").Scan(&oldQty).Error; err != nil {
+	// Lock the product row before reading quantities — mirrors
+	// applyItemCostLayer: this is what serialises two concurrent productions
+	// of the same product, and keeps the SUM below stable while we use it.
+	var product models.Product
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&product, productID).Error; err != nil {
 		return err
 	}
 
-	var product models.Product
-	if err := tx.First(&product, productID).Error; err != nil {
+	var oldQty float64
+	if err := tx.Model(&models.ProductStock{}).Where("product_id = ?", productID).
+		Select("COALESCE(SUM(quantity), 0)").Scan(&oldQty).Error; err != nil {
 		return err
 	}
 
@@ -160,6 +163,7 @@ func applyProductCostLayer(tx *gorm.DB, productID uint, incomingQty, unitCost fl
 // ---- Super Admin routes (global, project_id trusted in body) ----
 
 func ListProductions(c *gin.Context) {
+	page := paginationFrom(c)
 	query := database.DB.Model(&models.Production{}).
 		Preload("Product").Preload("Warehouse").Preload("Transaction.Items.Item")
 
@@ -169,20 +173,16 @@ func ListProductions(c *gin.Context) {
 	if warehouseID := queryUintPtr(c, "warehouse_id"); warehouseID != nil {
 		query = query.Where("warehouse_id = ?", *warehouseID)
 	}
-	if from := c.Query("from"); from != "" {
-		query = query.Where("created_at >= ?", from)
-	}
-	if to := c.Query("to"); to != "" {
-		query = query.Where("created_at <= ?", to)
-	}
+	query = applyCreatedAtRange(query, "created_at", c.Query("from"), c.Query("to"))
 
 	productions := []models.Production{}
-	if err := query.Order("created_at desc").Find(&productions).Error; err != nil {
+	total, err := paginate(query.Order("created_at desc"), page, &productions)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data produksi"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": productions, "total": len(productions)})
+	c.JSON(http.StatusOK, listResponse(productions, total, page))
 }
 
 func GetProduction(c *gin.Context) {
@@ -234,12 +234,13 @@ func CreateProduction(c *gin.Context) {
 
 func ListProductionsForProject(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
-	productions, err := listProductionsByProject(projectID, queryUintPtr(c, "warehouse_id"), c.Query("from"), c.Query("to"))
+	page := paginationFrom(c)
+	productions, total, err := listProductionsByProject(projectID, queryUintPtr(c, "warehouse_id"), c.Query("from"), c.Query("to"), page)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal mengambil data produksi"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": productions, "total": len(productions)})
+	c.JSON(http.StatusOK, listResponse(productions, total, page))
 }
 
 func GetProductionForProject(c *gin.Context) {
