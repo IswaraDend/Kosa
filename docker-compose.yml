@@ -46,9 +46,11 @@ services:
       SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD:?SEED_SUPERADMIN_PASSWORD wajib diisi di .env}
       # Backend hanya dihubungi oleh nginx di jaringan bridge Docker.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
-      # Tidak terpakai selama frontend dan API satu origin, tapi tetap diisi
-      # supaya benar kalau suatu saat API dibuka langsung.
-      CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      # Frontend Kosa sendiri satu origin dengan API, jadi tidak butuh CORS.
+      # Yang butuh adalah situs lain yang membaca /public/.../prices dari
+      # browser — origin-nya harus disebut di sini, dipisah koma, atau
+      # response-nya ditolak browser meski endpoint-nya balas 200.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
 
   web:
     build:
@@ -61,7 +63,11 @@ services:
     depends_on:
       - backend
     ports:
-      - '${PUBLIC_PORT:-8080}:80'
+      # Bind ke loopback saja. Docker menulis aturan iptables sendiri dan
+      # melewati ufw, jadi memetakan '8080:80' membuka dashboard dan API ke
+      # internet walaupun `ufw status` terlihat menutupnya. Reverse proxy di
+      # host (nginx + TLS) yang menjadi satu-satunya pintu masuk publik.
+      - '127.0.0.1:${PUBLIC_PORT:-8080}:80'
 
 volumes:
   kosa-db:
