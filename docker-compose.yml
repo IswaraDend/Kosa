@@ -46,9 +46,12 @@ services:
       SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD:?SEED_SUPERADMIN_PASSWORD wajib diisi di .env}
       # Backend hanya dihubungi oleh nginx di jaringan bridge Docker.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
-      # Tidak terpakai selama frontend dan API satu origin, tapi tetap diisi
-      # supaya benar kalau suatu saat API dibuka langsung.
-      CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      # Dashboard sendiri tidak pernah butuh CORS karena frontend dan API
+      # berbagi satu origin. Yang membutuhkannya adalah pemanggil dari origin
+      # lain, yaitu storefront yang membaca /public/projects/:code/prices.
+      # Isi CORS_ORIGINS di .env dengan daftar dipisah koma untuk kasus itu;
+      # kalau dikosongkan ia jatuh ke PUBLIC_ORIGIN seperti sebelumnya.
+      CORS_ORIGINS: ${CORS_ORIGINS:-${PUBLIC_ORIGIN:-http://localhost:8080}}
 
   web:
     build:
