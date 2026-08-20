@@ -51,7 +51,7 @@ services:
       # lain, yaitu storefront yang membaca /public/projects/:code/prices.
       # Isi CORS_ORIGINS di .env dengan daftar dipisah koma untuk kasus itu;
       # kalau dikosongkan ia jatuh ke PUBLIC_ORIGIN seperti sebelumnya.
-      CORS_ORIGINS: ${CORS_ORIGINS:-${PUBLIC_ORIGIN:-http://localhost:8080}}
+      CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
 
   web:
     build:
