@@ -46,12 +46,16 @@ services:
       SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD:?SEED_SUPERADMIN_PASSWORD wajib diisi di .env}
       # Backend hanya dihubungi oleh nginx di jaringan bridge Docker.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
-      # Dashboard sendiri tidak pernah butuh CORS karena frontend dan API
-      # berbagi satu origin. Yang membutuhkannya adalah pemanggil dari origin
-      # lain, yaitu storefront yang membaca /public/projects/:code/prices.
-      # Isi CORS_ORIGINS di .env dengan daftar dipisah koma untuk kasus itu;
-      # kalau dikosongkan ia jatuh ke PUBLIC_ORIGIN seperti sebelumnya.
-      CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      # Dashboard satu origin dengan API, jadi sebenarnya ia tidak butuh CORS
+      # untuk dirinya sendiri. Tapi browser mengirim header Origin pada setiap
+      # POST — termasuk yang satu origin — sehingga origin dashboard tetap
+      # wajib ada di allow-list, atau login sendiri dibalas 403 berbadan
+      # kosong. Backend menambahkan PUBLIC_ORIGIN ke daftar itu secara
+      # otomatis (lihat config.Load), jadi CORS_ORIGINS di bawah cukup diisi
+      # pihak luar saja: situs storefront yang membaca
+      # /public/projects/:code/prices dari browser pengunjungnya.
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
 
   web:
     build:
@@ -64,6 +68,15 @@ services:
     depends_on:
       - backend
     ports:
+      # Alamat bind ditentukan lewat PUBLIC_PORT di .env, bukan dipatok di
+      # sini, karena kedua bentuknya sama-sama sah tergantung deployment.
+      #
+      # Yang perlu diingat: Docker menulis aturan iptables sendiri dan
+      # melewati ufw, jadi bentuk '8080:80' membuka dashboard dan API ke
+      # internet walaupun `ufw status` terlihat menutupnya. Kalau ada reverse
+      # proxy (nginx + TLS) di host yang seharusnya menjadi satu-satunya pintu
+      # masuk publik, set PUBLIC_PORT=127.0.0.1:8080 supaya port ini hanya
+      # dapat dijangkau dari dalam server.
       - '${PUBLIC_PORT:-8080}:80'
 
 volumes:

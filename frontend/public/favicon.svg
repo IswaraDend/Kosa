@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Kosa">
+  <!--
+    Pañca Kośa — the nested sheaths the app is named after, and the same motif
+    already drawn behind the login form. Devanagari कोष was the obvious mark but
+    a favicon cannot carry the Rozha One webfont, and at 16px the glyph would
+    collapse into a smudge; concentric rings survive that size.
+
+    Three levels rather than five: below ~20px the two extra rings merge into a
+    solid disc and the mark stops reading as nested at all.
+  -->
+  <defs>
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e3b563"/>
+      <stop offset="1" stop-color="#c9973f"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="#12141c"/>
+
+  <g fill="none" stroke="url(#brass)" stroke-width="3.5">
+    <circle cx="32" cy="32" r="22"/>
+    <circle cx="32" cy="32" r="14" stroke-opacity="0.7"/>
+  </g>
+
+  <!-- Ānandamaya: the innermost layer, solid because nothing gates it. -->
+  <circle cx="32" cy="32" r="6.5" fill="url(#brass)"/>
+</svg>
