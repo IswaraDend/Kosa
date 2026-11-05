@@ -18,7 +18,6 @@ type Invoice struct {
 	ProjectID     uint          `gorm:"uniqueIndex:idx_project_invoice_no" json:"project_id"`
 	InvoiceNumber string        `gorm:"uniqueIndex:idx_project_invoice_no" json:"invoice_number"`
 	CustomerID    uint          `json:"customer_id"`
-	WarehouseID   uint          `json:"warehouse_id"`
 	Status        InvoiceStatus `gorm:"default:unpaid" json:"status"`
 	// Subtotal/TotalHPP are snapshot totals (sum of line qty*price / qty*cogs)
 	// stored at creation time so historical margin never drifts.
@@ -31,7 +30,6 @@ type Invoice struct {
 	// Relationships
 	Project     Project       `gorm:"foreignKey:ProjectID;references:ID" json:"-"`
 	Customer    Customer      `gorm:"foreignKey:CustomerID;references:ID" json:"customer,omitempty"`
-	Warehouse   Warehouse     `gorm:"foreignKey:WarehouseID;references:ID" json:"warehouse,omitempty"`
 	PerformedBy User          `gorm:"foreignKey:PerformedByID;references:ID" json:"-"`
 	Items       []InvoiceItem `gorm:"foreignKey:InvoiceID" json:"items,omitempty"`
 }

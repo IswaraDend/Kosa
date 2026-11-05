@@ -31,6 +31,30 @@ func RegisterRoutes(r *gin.Engine) {
 	// so add the storefront's origin to CORS_ORIGINS.
 	r.GET("/public/projects/:code/prices", handlers.PublicPriceList)
 
+	// Token exchange plus the read-only external API. Its own group on
+	// purpose: it never passes through AuthMiddleware, and no dashboard group
+	// accepts a token minted here — the two kinds of token are signed with
+	// different keys (see config.APITokenKey).
+	//
+	// CORS deliberately does not list X-API-Key as an allowed header. This is
+	// meant to be called server-to-server; a browser calling it directly would
+	// mean the secret key is sitting in someone else's JavaScript bundle.
+	apiV1 := r.Group("/api/v1")
+	{
+		apiV1.POST("/token", handlers.IssueAPIToken)
+
+		apiV1Read := apiV1.Group("")
+		// RequireModule works here unchanged because APITokenAuth sets
+		// projectID under the same context key the dashboard middleware uses.
+		// A secret key must not become a way around the commercial boundary.
+		apiV1Read.Use(middleware.APITokenAuth(), middleware.RequireModule(models.ModuleProduct))
+		{
+			apiV1Read.GET("/products", handlers.APIListProducts)
+			apiV1Read.GET("/products/:id", handlers.APIGetProduct)
+			apiV1Read.GET("/categories", handlers.APIListCategories)
+		}
+	}
+
 	superAdmin := r.Group("/super-admin")
 	superAdmin.Use(middleware.AuthMiddleware(), middleware.RequireSuperAdmin())
 	{
@@ -83,9 +107,25 @@ func RegisterRoutes(r *gin.Engine) {
 		superAdmin.PUT("/products/:id", handlers.UpdateProduct)
 		superAdmin.DELETE("/products/:id", handlers.DeleteProduct)
 		superAdmin.GET("/products/:id/stock", handlers.GetProductStock)
+		superAdmin.POST("/products/:id/stock", handlers.AdjustProductStock)
 		superAdmin.GET("/products/:id/recipe", handlers.ListProductRecipe)
 		superAdmin.POST("/products/:id/recipe", handlers.AddProductRecipe)
 		superAdmin.DELETE("/products/:id/recipe/:recipeId", handlers.RemoveProductRecipe)
+
+		// Part of the Product module, not a module of its own — see
+		// models/product_category.go. No GET /:id: nothing needs one category
+		// on its own, the list is what the product form picks from.
+		// Secret keys are project infrastructure, not one of the 8 modules, so
+		// this is not module-gated — same as managing members and permissions.
+		superAdmin.GET("/api-keys", handlers.ListAPIKeys)
+		superAdmin.POST("/projects/:id/api-keys", handlers.CreateAPIKey)
+		superAdmin.POST("/api-keys/:keyId/reveal", handlers.RevealAPIKey)
+		superAdmin.DELETE("/api-keys/:keyId", handlers.RevokeAPIKey)
+
+		superAdmin.GET("/product-categories", handlers.ListProductCategories)
+		superAdmin.POST("/product-categories", handlers.CreateProductCategory)
+		superAdmin.PUT("/product-categories/:id", handlers.UpdateProductCategory)
+		superAdmin.DELETE("/product-categories/:id", handlers.DeleteProductCategory)
 
 		superAdmin.GET("/transactions", handlers.ListTransactions)
 		superAdmin.POST("/transactions", handlers.CreateTransaction)
@@ -175,9 +215,28 @@ func RegisterRoutes(r *gin.Engine) {
 				adminProduct.PUT("/:id", handlers.UpdateProductForProject)
 				adminProduct.DELETE("/:id", handlers.DeleteProductForProject)
 				adminProduct.GET("/:id/stock", handlers.GetProductStockForProject)
+				adminProduct.POST("/:id/stock", handlers.AdjustProductStockForProject)
 				adminProduct.GET("/:id/recipe", handlers.ListProductRecipeForProject)
 				adminProduct.POST("/:id/recipe", handlers.AddProductRecipeForProject)
 				adminProduct.DELETE("/:id/recipe/:recipeId", handlers.RemoveProductRecipeForProject)
+			}
+
+			// No reveal here: reading an existing key back in plaintext is a
+			// Super Admin power. An admin who lost a key makes a new one.
+			adminAPIKey := adminProject.Group("/api-keys")
+			{
+				adminAPIKey.GET("", handlers.ListAPIKeysForProject)
+				adminAPIKey.POST("", handlers.CreateAPIKeyForProject)
+				adminAPIKey.DELETE("/:keyId", handlers.RevokeAPIKeyForProject)
+			}
+
+			adminProductCategory := adminProject.Group("/product-categories")
+			adminProductCategory.Use(middleware.RequireModule(models.ModuleProduct))
+			{
+				adminProductCategory.GET("", handlers.ListProductCategoriesForProject)
+				adminProductCategory.POST("", handlers.CreateProductCategoryForProject)
+				adminProductCategory.PUT("/:id", handlers.UpdateProductCategoryForProject)
+				adminProductCategory.DELETE("/:id", handlers.DeleteProductCategoryForProject)
 			}
 
 			adminTransaction := adminProject.Group("/transactions")
@@ -270,6 +329,11 @@ func RegisterRoutes(r *gin.Engine) {
 				memberProduct.GET("", middleware.RequirePermission("product.view"), handlers.ListProductsForProject)
 				memberProduct.GET("/:id", middleware.RequirePermission("product.view"), handlers.GetProductForProject)
 				memberProduct.GET("/:id/stock", middleware.RequirePermission("product.view"), handlers.GetProductStockForProject)
+				// Booking stock by hand and importing it from Excel are the
+				// same act — putting product stock in without a Production
+				// run — so they share one permission rather than splitting a
+				// grant that would be meaningless on its own.
+				memberProduct.POST("/:id/stock", middleware.RequirePermission("product.import"), handlers.AdjustProductStockForProject)
 				memberProduct.GET("/:id/recipe", middleware.RequirePermission("product.view"), handlers.ListProductRecipeForProject)
 				memberProduct.POST("", middleware.RequirePermission("product.create"), handlers.CreateProductForProject)
 				memberProduct.PUT("/:id", middleware.RequirePermission("product.update"), handlers.UpdateProductForProject)
@@ -277,6 +341,19 @@ func RegisterRoutes(r *gin.Engine) {
 				// Editing the bill of materials is editing the product.
 				memberProduct.POST("/:id/recipe", middleware.RequirePermission("product.update"), handlers.AddProductRecipeForProject)
 				memberProduct.DELETE("/:id/recipe/:recipeId", middleware.RequirePermission("product.update"), handlers.RemoveProductRecipeForProject)
+			}
+
+			// Categories reuse the product.* grants one for one rather than
+			// adding four more permissions to seedPermissions: a category
+			// exists only to be put on a product, so a grant that let someone
+			// manage categories but not products would mean nothing.
+			memberProductCategory := memberProject.Group("/product-categories")
+			memberProductCategory.Use(middleware.RequireModule(models.ModuleProduct))
+			{
+				memberProductCategory.GET("", middleware.RequirePermission("product.view"), handlers.ListProductCategoriesForProject)
+				memberProductCategory.POST("", middleware.RequirePermission("product.create"), handlers.CreateProductCategoryForProject)
+				memberProductCategory.PUT("/:id", middleware.RequirePermission("product.update"), handlers.UpdateProductCategoryForProject)
+				memberProductCategory.DELETE("/:id", middleware.RequirePermission("product.delete"), handlers.DeleteProductCategoryForProject)
 			}
 
 			memberProduction := memberProject.Group("/productions")

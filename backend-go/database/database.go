@@ -40,6 +40,9 @@ func Connect() {
 	DB = db
 	log.Println("Database PostgreSQL connected!")
 
+	// Runs before AutoMigrate on purpose — see the comment on the function.
+	migrateDropWarehouseColumns()
+
 	// Auto Migrate Table
 	err = DB.AutoMigrate(
 		&models.User{},
@@ -51,6 +54,7 @@ func Connect() {
 		&models.Warehouse{},
 		&models.Item{},
 		&models.Stock{},
+		&models.ProductCategory{},
 		&models.Product{},
 		&models.ProductRecipe{},
 		&models.ProductStock{},
@@ -61,6 +65,8 @@ func Connect() {
 		&models.Invoice{},
 		&models.InvoiceItem{},
 		&models.ProjectModule{},
+		&models.ProjectAPIKey{},
+		&models.APIKeyAudit{},
 	)
 	if err != nil {
 		log.Fatal("Migration failed:", err)
@@ -164,7 +170,10 @@ func seedPermissions() {
 		{Code: "product.create", Name: "Tambah Produk", Module: models.ModuleProduct},
 		{Code: "product.update", Name: "Ubah Produk & Resep", Module: models.ModuleProduct},
 		{Code: "product.delete", Name: "Hapus Produk", Module: models.ModuleProduct},
-		{Code: "product.import", Name: "Import Stok Produk", Module: models.ModuleProduct},
+		// Covers both doors onto ProductStock: the Excel import and the manual
+		// entry on the product page. Assign() below means this rename reaches
+		// databases that already hold the old label.
+		{Code: "product.import", Name: "Atur Stok Produk (import & manual)", Module: models.ModuleProduct},
 
 		{Code: "production.view", Name: "Lihat Produksi", Module: models.ModuleProduction},
 		{Code: "production.create", Name: "Catat Produksi", Module: models.ModuleProduction},
@@ -192,5 +201,77 @@ func seedPermissions() {
 			FirstOrCreate(&p).Error; err != nil {
 			log.Println("WARNING: gagal seed permission", p.Code, err)
 		}
+	}
+}
+
+// columnExists answers from the catalog rather than from a failed ALTER, so a
+// migration that has already run is skipped silently instead of logging an
+// error on every boot.
+func columnExists(table, column string) bool {
+	var n int64
+	err := DB.Raw(`
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = current_schema()
+		  AND table_name = ? AND column_name = ?
+	`, table, column).Scan(&n).Error
+	if err != nil {
+		log.Println("WARNING: gagal memeriksa kolom", table+"."+column, err)
+		return false
+	}
+	return n > 0
+}
+
+// migrateDropWarehouseColumns takes finished-goods stock and invoices off
+// Warehouse.
+//
+// It has to run BEFORE AutoMigrate: the unique index on product_stocks is now
+// (project_id, product_id), and a database still holding one row per warehouse
+// would have duplicates under that key, so AutoMigrate could not create the
+// index at all. Every step is guarded by the column still being there, which
+// makes the whole thing a no-op on a fresh database and on every boot after
+// the first.
+//
+// Warehouses themselves are deliberately left alone — Item stock, Transaction
+// and Production still reference them.
+func migrateDropWarehouseColumns() {
+	if columnExists("product_stocks", "warehouse_id") {
+		// Two warehouses holding the same product collapse into one balance.
+		// Summing is the only answer that keeps the total on hand correct;
+		// keeping one row and dropping the others would destroy real stock.
+		if err := DB.Exec(`
+			UPDATE product_stocks ps SET quantity = agg.total
+			FROM (
+				SELECT project_id, product_id, MIN(id) AS keep_id, SUM(quantity) AS total
+				FROM product_stocks GROUP BY project_id, product_id
+			) agg
+			WHERE ps.id = agg.keep_id
+		`).Error; err != nil {
+			log.Fatal("Migration failed: gagal menggabungkan stok produk antar gudang: ", err)
+		}
+		if err := DB.Exec(`
+			DELETE FROM product_stocks ps
+			USING (
+				SELECT project_id, product_id, MIN(id) AS keep_id
+				FROM product_stocks GROUP BY project_id, product_id
+			) agg
+			WHERE ps.project_id = agg.project_id
+			  AND ps.product_id = agg.product_id
+			  AND ps.id <> agg.keep_id
+		`).Error; err != nil {
+			log.Fatal("Migration failed: gagal membersihkan stok produk ganda: ", err)
+		}
+		// Dropping the column takes idx_warehouse_product with it, since that
+		// index is built partly on it.
+		if err := DB.Exec("ALTER TABLE product_stocks DROP COLUMN warehouse_id").Error; err != nil {
+			log.Fatal("Migration failed: gagal menghapus product_stocks.warehouse_id: ", err)
+		}
+		log.Println("Migrasi: stok produk digabung per project, kolom warehouse_id dihapus")
+	}
+
+	if columnExists("invoices", "warehouse_id") {
+		if err := DB.Exec("ALTER TABLE invoices DROP COLUMN warehouse_id").Error; err != nil {
+			log.Fatal("Migration failed: gagal menghapus invoices.warehouse_id: ", err)
+		}
+		log.Println("Migrasi: kolom invoices.warehouse_id dihapus")
 	}
 }

@@ -29,10 +29,9 @@ type itemStockImportRow struct {
 }
 
 type productStockImportRow struct {
-	productID   uint
-	warehouseID uint
-	quantity    float64
-	unitCost    float64 // 0 means "not provided" — quantity-only correction
+	productID uint
+	quantity  float64
+	unitCost  float64 // 0 means "not provided" — quantity-only correction
 }
 
 func openImportFile(c *gin.Context) (*excelize.File, string, error) {
@@ -144,7 +143,7 @@ func parseItemStockImport(rows [][]string, projectID uint) ([]itemStockImportRow
 	return parsed, errs
 }
 
-// parseProductStockImport validates "SKU | Gudang | Qty | HPP per Unit
+// parseProductStockImport validates "SKU | Qty | HPP per Unit
 // (opsional)". Unlike items, cost is genuinely optional here — a blank cost
 // means "quantity-only correction", not an error.
 func parseProductStockImport(rows [][]string, projectID uint) ([]productStockImportRow, []importRowError) {
@@ -161,19 +160,12 @@ func parseProductStockImport(rows [][]string, projectID uint) ([]productStockImp
 		if sku == "" {
 			continue
 		}
-		warehouseCode := rowCell(row, 1)
-		qtyStr := rowCell(row, 2)
-		costStr := rowCell(row, 3)
+		qtyStr := rowCell(row, 1)
+		costStr := rowCell(row, 2)
 
 		var product models.Product
 		if err := database.DB.Where("project_id = ? AND sku = ?", projectID, sku).First(&product).Error; err != nil {
 			errs = append(errs, importRowError{Row: rowNum, Message: fmt.Sprintf("SKU '%s' tidak ditemukan di project ini", sku)})
-			continue
-		}
-
-		var warehouse models.Warehouse
-		if err := database.DB.Where("project_id = ? AND code = ?", projectID, warehouseCode).First(&warehouse).Error; err != nil {
-			errs = append(errs, importRowError{Row: rowNum, Message: fmt.Sprintf("Gudang '%s' tidak ditemukan di project ini", warehouseCode)})
 			continue
 		}
 
@@ -189,7 +181,7 @@ func parseProductStockImport(rows [][]string, projectID uint) ([]productStockImp
 			continue
 		}
 
-		parsed = append(parsed, productStockImportRow{productID: product.ID, warehouseID: warehouse.ID, quantity: qty, unitCost: cost})
+		parsed = append(parsed, productStockImportRow{productID: product.ID, quantity: qty, unitCost: cost})
 	}
 
 	return parsed, errs
@@ -235,7 +227,7 @@ func executeProductStockImport(projectID uint, rows []productStockImportRow) (in
 					return err
 				}
 			}
-			if err := adjustProductStock(tx, projectID, r.warehouseID, r.productID, r.quantity); err != nil {
+			if err := adjustProductStock(tx, projectID, r.productID, r.quantity); err != nil {
 				return err
 			}
 		}

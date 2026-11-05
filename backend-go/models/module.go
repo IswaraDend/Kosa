@@ -31,14 +31,18 @@ var AllModules = []string{
 // dependencies — see ExpandModules.
 //
 // Product deliberately has NO dependency: on its own it is a plain catalogue
-// of finished goods (SKU/name/unit/price). Only the features that actually
-// move product quantity around — Production and Invoice — pull in Warehouse,
-// and Production additionally pulls in Item for its recipe (BOM).
+// of finished goods (SKU/name/unit/price). Invoice adds Customer to that and
+// nothing else — finished-product stock is counted per project, not per
+// warehouse (see ProductStock), so selling does not need a Warehouse at all.
+//
+// Production is the one that pulls Warehouse in, because it consumes Item
+// stock, which is still tracked per warehouse; it pulls Item in for the
+// recipe (BOM) for the same reason.
 var moduleDependencies = map[string][]string{
 	ModuleItem:        {ModuleWarehouse},
 	ModuleProduction:  {ModuleProduct, ModuleItem, ModuleWarehouse},
 	ModuleTransaction: {ModuleItem, ModuleWarehouse},
-	ModuleInvoice:     {ModuleProduct, ModuleCustomer, ModuleWarehouse},
+	ModuleInvoice:     {ModuleProduct, ModuleCustomer},
 }
 
 // DependentsOf returns the modules that cannot function without m — the

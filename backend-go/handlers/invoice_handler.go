@@ -14,7 +14,7 @@ import (
 
 func listInvoicesByProject(projectID uint, status, from, to string, page Pagination) ([]models.Invoice, int64, error) {
 	query := database.DB.Model(&models.Invoice{}).
-		Preload("Customer").Preload("Warehouse").Preload("Items.Product").
+		Preload("Customer").Preload("Items.Product").
 		Where("project_id = ?", projectID)
 
 	if status != "" {
@@ -29,7 +29,7 @@ func listInvoicesByProject(projectID uint, status, from, to string, page Paginat
 
 func getInvoiceScoped(id, projectID uint) (models.Invoice, error) {
 	var invoice models.Invoice
-	err := database.DB.Preload("Customer").Preload("Warehouse").Preload("Items.Product").
+	err := database.DB.Preload("Customer").Preload("Items.Product").
 		Where("id = ? AND project_id = ?", id, projectID).First(&invoice).Error
 	return invoice, err
 }
@@ -42,20 +42,18 @@ type CreateInvoiceItemRequest struct {
 
 // CreateInvoiceFields is used by Admin routes (project trusted from context).
 type CreateInvoiceFields struct {
-	CustomerID  uint                       `json:"customer_id" binding:"required"`
-	WarehouseID uint                       `json:"warehouse_id" binding:"required"`
-	Note        string                     `json:"note"`
-	Items       []CreateInvoiceItemRequest `json:"items" binding:"required,min=1,dive"`
+	CustomerID uint                       `json:"customer_id" binding:"required"`
+	Note       string                     `json:"note"`
+	Items      []CreateInvoiceItemRequest `json:"items" binding:"required,min=1,dive"`
 }
 
 // CreateInvoiceRequest is the same shape plus ProjectID — used by Super Admin
 // routes where the project is trusted from the request body.
 type CreateInvoiceRequest struct {
-	ProjectID   uint                       `json:"project_id" binding:"required"`
-	CustomerID  uint                       `json:"customer_id" binding:"required"`
-	WarehouseID uint                       `json:"warehouse_id" binding:"required"`
-	Note        string                     `json:"note"`
-	Items       []CreateInvoiceItemRequest `json:"items" binding:"required,min=1,dive"`
+	ProjectID  uint                       `json:"project_id" binding:"required"`
+	CustomerID uint                       `json:"customer_id" binding:"required"`
+	Note       string                     `json:"note"`
+	Items      []CreateInvoiceItemRequest `json:"items" binding:"required,min=1,dive"`
 }
 
 // invoiceNumberMaxAttempts bounds the retry in createInvoiceCore.
@@ -85,9 +83,6 @@ func createInvoiceCore(projectID, callerID uint, req CreateInvoiceFields) (model
 	if _, err := getCustomerScoped(req.CustomerID, projectID); err != nil {
 		return models.Invoice{}, err
 	}
-	if _, err := getWarehouseScoped(req.WarehouseID, projectID); err != nil {
-		return models.Invoice{}, err
-	}
 
 	products := map[uint]models.Product{}
 	for _, line := range req.Items {
@@ -113,7 +108,7 @@ func createInvoiceCore(projectID, callerID uint, req CreateInvoiceFields) (model
 		lines := make([]models.InvoiceItem, 0, len(req.Items))
 		for _, line := range req.Items {
 			product := products[line.ProductID]
-			if err := adjustProductStock(tx, projectID, req.WarehouseID, line.ProductID, -line.Quantity); err != nil {
+			if err := adjustProductStock(tx, projectID, line.ProductID, -line.Quantity); err != nil {
 				return err
 			}
 			subtotal += line.Quantity * line.UnitPrice
@@ -130,7 +125,6 @@ func createInvoiceCore(projectID, callerID uint, req CreateInvoiceFields) (model
 			ProjectID:     projectID,
 			InvoiceNumber: invoiceNumber,
 			CustomerID:    req.CustomerID,
-			WarehouseID:   req.WarehouseID,
 			Status:        models.InvoiceUnpaid,
 			Subtotal:      subtotal,
 			TotalHPP:      totalHPP,
@@ -168,7 +162,7 @@ func createInvoiceCore(projectID, callerID uint, req CreateInvoiceFields) (model
 		return models.Invoice{}, err
 	}
 
-	database.DB.Preload("Customer").Preload("Warehouse").Preload("Items.Product").First(&invoice, invoice.ID)
+	database.DB.Preload("Customer").Preload("Items.Product").First(&invoice, invoice.ID)
 	return invoice, nil
 }
 
@@ -176,7 +170,7 @@ func createInvoiceCore(projectID, callerID uint, req CreateInvoiceFields) (model
 // status is "cancelled" — puts the sold quantities back into ProductStock.
 //
 // Creating an invoice deducts stock, so cancelling one has to add it back:
-// the goods never left the warehouse. Skipping the restock made the ledger
+// the goods never left the shelf. Skipping the restock made the ledger
 // and the shelf disagree permanently, because the sales report already
 // excludes cancelled invoices from revenue.
 //
@@ -198,7 +192,7 @@ func updateInvoiceStatusScoped(id, projectID uint, status models.InvoiceStatus) 
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		if status == models.InvoiceCancelled {
 			for _, line := range invoice.Items {
-				if err := adjustProductStock(tx, projectID, invoice.WarehouseID, line.ProductID, line.Quantity); err != nil {
+				if err := adjustProductStock(tx, projectID, line.ProductID, line.Quantity); err != nil {
 					return err
 				}
 			}
@@ -227,7 +221,7 @@ type UpdateInvoiceStatusRequest struct {
 func ListInvoices(c *gin.Context) {
 	page := paginationFrom(c)
 	query := database.DB.Model(&models.Invoice{}).
-		Preload("Customer").Preload("Warehouse").Preload("Items.Product")
+		Preload("Customer").Preload("Items.Product")
 
 	if projectID := queryUintPtr(c, "project_id"); projectID != nil {
 		query = query.Where("project_id = ?", *projectID)
@@ -272,7 +266,7 @@ func GetInvoice(c *gin.Context) {
 	}
 
 	var invoice models.Invoice
-	if err := database.DB.Preload("Customer").Preload("Warehouse").Preload("Items.Product").
+	if err := database.DB.Preload("Customer").Preload("Items.Product").
 		First(&invoice, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Invoice tidak ditemukan"})
 		return
@@ -288,11 +282,11 @@ func CreateInvoice(c *gin.Context) {
 		return
 	}
 
-	fields := CreateInvoiceFields{CustomerID: req.CustomerID, WarehouseID: req.WarehouseID, Note: req.Note, Items: req.Items}
+	fields := CreateInvoiceFields{CustomerID: req.CustomerID, Note: req.Note, Items: req.Items}
 	invoice, err := createInvoiceCore(req.ProjectID, currentUserID(c), fields)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Customer, gudang, atau produk tidak ditemukan"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Customer atau produk tidak ditemukan"})
 			return
 		}
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
@@ -369,7 +363,7 @@ func CreateInvoiceForProject(c *gin.Context) {
 	invoice, err := createInvoiceCore(projectID, currentUserID(c), req)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Customer, gudang, atau produk tidak ditemukan"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "Customer atau produk tidak ditemukan"})
 			return
 		}
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})

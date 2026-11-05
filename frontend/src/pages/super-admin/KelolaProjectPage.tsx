@@ -4,7 +4,16 @@ import { useDebounced } from '../../hooks/useDebounced';
 import { Plus, Folder, CheckCircle, Users, UserCog, MoreVertical } from 'lucide-react';
 import { api, ApiError, buildQuery, type PaginatedResponse } from '../../lib/api';
 import type { Project, SummaryData } from '../../types';
-import { MODULES, LAYERS, expandModules, collapseModules, type ModuleCode } from '../../lib/modules';
+import {
+  MODULES,
+  LAYERS,
+  expandModules,
+  collapseModules,
+  isActiveModule,
+  moduleLabel,
+  outOfScopeModules,
+  type ModuleCode,
+} from '../../lib/modules';
 import type { CSSProperties } from 'react';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
@@ -103,6 +112,13 @@ const KelolaProjectPage = () => {
         : expandModules([...prev.modules, code]),
     }));
   };
+
+  // Modules this build no longer shows but that this project still has on.
+  // They are kept in form.modules and sent back unchanged on save, so editing
+  // a project never silently strips them (and never silently runs
+  // pruneMemberPermissions over its grants) — only the explicit checkbox below
+  // turns one off.
+  const outOfScope = outOfScopeModules(form.modules);
 
   const handleSubmit = async () => {
     setSaving(true);
@@ -313,28 +329,57 @@ const KelolaProjectPage = () => {
             butuh Produk &amp; Pelanggan) akan ikut tercentang otomatis.
           </p>
           <div className="module-picker">
-            {LAYERS.map((layer) => (
-              <div className="module-band" key={layer.code} style={{ '--band-c': `var(${layer.colorVar})` } as CSSProperties}>
-                <div className="module-band-head">
-                  {layer.name}
-                  <span className="deva">{layer.deva}</span>
+            {LAYERS.map((layer) => {
+              const codes = layer.modules.filter(isActiveModule);
+              // Prāṇamaya holds only Transaksi and Produksi, so with the
+              // current scope its band has nothing in it — rendering it would
+              // leave a bare coloured strip with no checkboxes under it.
+              if (codes.length === 0) return null;
+              return (
+                <div className="module-band" key={layer.code} style={{ '--band-c': `var(${layer.colorVar})` } as CSSProperties}>
+                  <div className="module-band-head">
+                    {layer.name}
+                    <span className="deva">{layer.deva}</span>
+                  </div>
+                  <div className="module-band-body">
+                    {codes.map((code) => {
+                      const m = MODULES.find((mod) => mod.code === code)!;
+                      const on = form.modules.includes(code);
+                      return (
+                        <label key={code} className={`module-check ${on ? 'on' : ''}`}>
+                          <input type="checkbox" checked={on} onChange={() => toggleModule(code)} />
+                          {m.label}
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="module-band-body">
-                  {layer.modules.map((code) => {
-                    const m = MODULES.find((mod) => mod.code === code)!;
-                    const on = form.modules.includes(code);
-                    return (
-                      <label key={code} className={`module-check ${on ? 'on' : ''}`}>
-                        <input type="checkbox" checked={on} onChange={() => toggleModule(code)} />
-                        {m.label}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
+
+        {outOfScope.length > 0 && (
+          <div className="form-group">
+            <label>Di Luar Ruang Lingkup Saat Ini</label>
+            <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: '0 0 8px' }}>
+              Project ini masih menyimpan fitur yang sudah tidak ditampilkan di dashboard mana pun. Datanya utuh
+              dan menunya muncul lagi sendiri kalau ruang lingkupnya dibuka kembali, jadi biarkan saja kalau belum
+              yakin. Mematikannya di sini <strong>menghapus permanen</strong> grant member untuk fitur tersebut —
+              grant itu tidak disimpan untuk nanti.
+            </p>
+            <div className="module-band" style={{ '--band-c': 'var(--text-muted)' } as CSSProperties}>
+              <div className="module-band-body">
+                {outOfScope.map((code) => (
+                  <label key={code} className="module-check on">
+                    <input type="checkbox" checked onChange={() => toggleModule(code)} />
+                    {moduleLabel(code)}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </Modal>
 
       <ConfirmDialog

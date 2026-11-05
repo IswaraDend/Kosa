@@ -80,7 +80,7 @@ func createProductionCore(projectID, warehouseID, productID, callerID uint, quan
 			return err
 		}
 
-		if err := adjustProductStock(tx, projectID, warehouseID, productID, quantity); err != nil {
+		if err := adjustProductStock(tx, projectID, productID, quantity); err != nil {
 			return err
 		}
 
@@ -107,16 +107,20 @@ func createProductionCore(projectID, warehouseID, productID, callerID uint, quan
 	return production, nil
 }
 
-func adjustProductStock(tx *gorm.DB, projectID, warehouseID, productID uint, delta float64) error {
+func adjustProductStock(tx *gorm.DB, projectID, productID uint, delta float64) error {
 	var ps models.ProductStock
 	// Same reasoning as adjustStock: a running balance must be locked for the
 	// duration of the transaction, or a concurrent production/sale on the same
 	// product overwrites this one's result.
+	//
+	// The lookup is project-scoped now that warehouse_id is gone. It used to
+	// match on (warehouse_id, product_id) alone, which only stayed tenant-safe
+	// because a warehouse implied a project.
 	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("warehouse_id = ? AND product_id = ?", warehouseID, productID).First(&ps).Error
+		Where("project_id = ? AND product_id = ?", projectID, productID).First(&ps).Error
 
 	if err == gorm.ErrRecordNotFound {
-		ps = models.ProductStock{ProjectID: projectID, WarehouseID: warehouseID, ProductID: productID, Quantity: 0}
+		ps = models.ProductStock{ProjectID: projectID, ProductID: productID, Quantity: 0}
 		if err := tx.Create(&ps).Error; err != nil {
 			return err
 		}
@@ -124,9 +128,14 @@ func adjustProductStock(tx *gorm.DB, projectID, warehouseID, productID uint, del
 		return err
 	}
 
+	// Reported before the mutation is saved, and in the terms the person is
+	// actually working in: how much is there against how much was asked for.
+	// The previous wording ("tidak valid") named only internal IDs, which told
+	// a seller nothing about why the invoice would not save.
+	available := ps.Quantity
 	ps.Quantity += delta
 	if ps.Quantity < 0 {
-		return fmt.Errorf("stok produk tidak valid untuk produk ID %d di gudang ID %d", productID, warehouseID)
+		return fmt.Errorf("stok produk tidak cukup: tersedia %g, diminta %g", available, -delta)
 	}
 
 	return tx.Save(&ps).Error

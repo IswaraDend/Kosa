@@ -43,10 +43,6 @@ const InvoicePrintView = ({ invoice, onClose }: InvoicePrintViewProps) => {
             {invoice.customer?.address && <div>{invoice.customer.address}</div>}
             {invoice.customer?.phone && <div>{invoice.customer.phone}</div>}
           </div>
-          <div>
-            <div className="invoice-print-label">Dikirim dari Gudang</div>
-            <div>{invoice.warehouse?.name ?? '-'}</div>
-          </div>
         </div>
 
         <table className="invoice-print-table">

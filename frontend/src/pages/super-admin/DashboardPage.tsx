@@ -3,6 +3,7 @@ import { Folder, Box, Receipt, TrendingUp, Wallet } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { api, ApiError } from '../../lib/api';
 import { formatCurrency } from '../../lib/format';
+import { isActiveModule } from '../../lib/modules';
 import type {
   InvoiceRecord,
   SalesSummaryRow,
@@ -29,6 +30,16 @@ const DashboardPage = () => {
   const [recentInvoices, setRecentInvoices] = useState<InvoiceRecord[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // Both of these panels read a module this build no longer exposes: the
+  // movement chart is Transaksi, and "Stok Terendah" is Item stock. They are
+  // skipped rather than merely hidden, so the dashboard does not spend two
+  // requests fetching rows nothing will render.
+  const showMovement = isActiveModule('transaction');
+  const showItemStock = isActiveModule('item');
+  // Warehouses still exist in the database for the Item chain, but nothing in
+  // this build lets anyone open them, so the count would be a dead end.
+  const showWarehouse = isActiveModule('warehouse');
+
   useEffect(() => {
     api
       .get<SummaryData>('/super-admin/summary')
@@ -40,26 +51,31 @@ const DashboardPage = () => {
       .then((res) => setSales(res.data))
       .catch(() => setSales([]));
 
-    api
-      .get<{ data: TransactionReportRow[] }>('/super-admin/reports/transactions')
-      .then((res) => setMovement(res.data))
-      .catch(() => setMovement([]));
+    if (showMovement) {
+      api
+        .get<{ data: TransactionReportRow[] }>('/super-admin/reports/transactions')
+        .then((res) => setMovement(res.data))
+        .catch(() => setMovement([]));
+    }
 
     api
       .get<{ data: TopProductRow[] }>('/super-admin/reports/top-products?limit=5')
       .then((res) => setTopProducts(res.data))
       .catch(() => setTopProducts([]));
 
-    api
-      .get<{ data: StockSummaryRow[] }>('/super-admin/reports/stock-summary')
-      .then((res) => setLowStock([...res.data].sort((a, b) => a.quantity - b.quantity).slice(0, 5)))
-      .catch(() => setLowStock([]));
+    if (showItemStock) {
+      api
+        .get<{ data: StockSummaryRow[] }>('/super-admin/reports/stock-summary')
+        .then((res) => setLowStock([...res.data].sort((a, b) => a.quantity - b.quantity).slice(0, 5)))
+        .catch(() => setLowStock([]));
+    }
 
     api
       .get<{ data: InvoiceRecord[] }>('/super-admin/invoices?limit=5')
       .then((res) => setRecentInvoices(res.data))
       .catch(() => setRecentInvoices([]));
-  }, []);
+    // Both flags derive from a module-level constant, so this still runs once.
+  }, [showMovement, showItemStock]);
 
   const movementChartData = Object.values(
     movement.reduce<Record<string, { period: string; masuk: number; keluar: number }>>((acc, row) => {
@@ -83,7 +99,9 @@ const DashboardPage = () => {
         <StatCard label="Total Margin" value={formatCurrency(summary?.total_margin ?? 0)} icon={<TrendingUp size={18} />} />
         <StatCard label="Total Invoice" value={summary?.total_invoices ?? '-'} icon={<Receipt size={18} />} />
         <StatCard label="Project Aktif" value={summary?.active_projects ?? '-'} icon={<Folder size={18} />} />
-        <StatCard label="Total Gudang" value={summary?.total_warehouses ?? '-'} icon={<Box size={18} />} />
+        {showWarehouse && (
+          <StatCard label="Total Gudang" value={summary?.total_warehouses ?? '-'} icon={<Box size={18} />} />
+        )}
       </div>
 
       <div className="dashboard-grid">
@@ -112,6 +130,7 @@ const DashboardPage = () => {
           </div>
         </div>
 
+        {showMovement && (
         <div className="card chart-card">
           <div className="chart-header">
             <div>
@@ -132,6 +151,7 @@ const DashboardPage = () => {
             </ResponsiveContainer>
           </div>
         </div>
+        )}
       </div>
 
       <div className="dashboard-grid">
@@ -161,6 +181,7 @@ const DashboardPage = () => {
           </tbody>
         </TableCard>
 
+        {showItemStock && (
         <TableCard title="Stok Terendah" count={lowStock.length}>
           <thead>
             <tr>
@@ -188,6 +209,7 @@ const DashboardPage = () => {
             ))}
           </tbody>
         </TableCard>
+        )}
       </div>
 
       <TableCard title="Invoice Terbaru" count={recentInvoices.length}>

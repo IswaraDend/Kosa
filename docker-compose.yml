@@ -40,6 +40,11 @@ services:
       # ke Postgres terkelola di luar host ini.
       DB_DSN: host=db user=${POSTGRES_USER:-kosa} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB:-kosa} port=5432 sslmode=disable TimeZone=UTC
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET wajib diisi di .env}
+      # Mengenkripsi secret key project supaya Super Admin bisa membacanya
+      # kembali. Backend menolak boot tanpa ini — sengaja, karena kunci yang
+      # berubah membuat setiap secret key yang sudah tersimpan tidak bisa
+      # didekripsi lagi. Isi sekali, lalu jangan pernah diganti.
+      API_KEY_ENC_KEY: ${API_KEY_ENC_KEY:?API_KEY_ENC_KEY wajib diisi di .env}
       GIN_MODE: release
       # Hanya dipakai saat tabel users masih kosong, untuk akun login pertama.
       SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL:?SEED_SUPERADMIN_EMAIL wajib diisi di .env}

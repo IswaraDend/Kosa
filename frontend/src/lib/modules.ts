@@ -21,12 +21,42 @@ export const MODULES: { code: ModuleCode; label: string }[] = [
   { code: 'report', label: 'Laporan' },
 ];
 
+// The slice of MODULES this build actually puts on screen. Narrower than
+// MODULES on purpose: for now the app only serves the Produk → Invoice path,
+// so Item, Produksi, Transaksi, and Laporan are offered on no screen at all.
+//
+// Nothing was deleted to achieve that. The Go routes, handlers, and pages for
+// those four are all still in place, and a project that still has one of them
+// switched on keeps its ProjectModule rows and its member grants untouched —
+// the feature is hidden, not removed. Putting a code back in this list is the
+// whole of bringing it back.
+//
+// Gudang is gone from this list and from the schema it used to sit in: Invoice
+// no longer carries a WarehouseID, and ProductStock is one balance per project.
+// Pelanggan stays because Invoice still carries a CustomerID.
+//
+// The warehouses table itself is untouched — Item stock, Transaksi, and
+// Produksi still count per warehouse, which is why 'warehouse' is still a
+// module code and still a dependency of those three.
+export const ACTIVE_MODULES: ModuleCode[] = ['product', 'customer', 'invoice'];
+
+/** Whether this build exposes `code` at all, regardless of any project's own switch. */
+export function isActiveModule(code: string): boolean {
+  return (ACTIVE_MODULES as string[]).includes(code);
+}
+
+/** The modules a project may still have enabled but that this build hides. */
+export function outOfScopeModules(enabled: string[]): ModuleCode[] {
+  return MODULES.map((m) => m.code).filter((code) => enabled.includes(code) && !isActiveModule(code));
+}
+
 // A module implies its dependencies are enabled too (e.g. raw-material Item
 // stock is always tracked per Gudang). Mirrors moduleDependencies in module.go.
 //
 // Product deliberately has no dependency: alone it is just a catalogue of
-// finished goods. Only Produksi and Invoice — the features that actually move
-// product quantity — require Gudang.
+// finished goods. Invoice adds only Pelanggan, because finished-goods stock is
+// counted per project rather than per warehouse. Produksi is the one that
+// needs Gudang, since it consumes Item stock, which still is per warehouse.
 export const MODULE_DEPENDENCIES: Record<ModuleCode, ModuleCode[]> = {
   warehouse: [],
   item: ['warehouse'],
@@ -34,7 +64,7 @@ export const MODULE_DEPENDENCIES: Record<ModuleCode, ModuleCode[]> = {
   production: ['product', 'item', 'warehouse'],
   transaction: ['item', 'warehouse'],
   customer: [],
-  invoice: ['product', 'customer', 'warehouse'],
+  invoice: ['product', 'customer'],
   report: [],
 };
 
@@ -69,7 +99,7 @@ export function dependentsOf(m: ModuleCode): ModuleCode[] {
 /**
  * Removes `remove` from `current` along with everything that transitively
  * depends on it. Counterpart to expandModules — mirrors CollapseModules in
- * module.go. Without this, unchecking a dependency (e.g. Gudang while Invoice
+* module.go. Without this, unchecking a dependency (e.g. Gudang while Produksi
  * is on) would be undone immediately by the next expandModules call, making
  * the checkbox look stuck.
  */
@@ -122,7 +152,12 @@ export function groupByLayer(enabledModules: string[], nav: Partial<Record<Modul
   const blocks: SidebarBlock[] = [];
   LAYERS.forEach((layer, layerIdx) => {
     const items = layer.modules
-      .filter((m) => enabledModules.includes(m))
+      // isActiveModule is the second gate on purpose: a project created before
+      // the scope narrowed may still carry item/production/transaction/report
+      // in its ProjectModule rows, and those rows are deliberately left alone.
+      // Filtering here keeps both the Admin and the Member sidebar correct
+      // whatever the database still says.
+      .filter((m) => enabledModules.includes(m) && isActiveModule(m))
       .map((m) => nav[m])
       .filter((n): n is NavLeaf => !!n);
     if (items.length > 0) blocks.push({ kind: 'group', layerIdx, items });

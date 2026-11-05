@@ -139,6 +139,33 @@ export interface TopProductRow {
   total_revenue: number;
 }
 
+// A secret an outside caller exchanges for a short-lived access token at
+// POST /api/v1/token. The plaintext is never part of this shape: it arrives
+// once in the create response and again from the reveal endpoint, both as a
+// bare { secret } payload.
+export interface ProjectApiKey {
+  id: number;
+  project_id: number;
+  name: string;
+  key_prefix: string;
+  status: 'active' | 'revoked';
+  last_used_at: string | null;
+  expires_at: string | null;
+  created_by: number;
+  created_at: string;
+  revoked_at: string | null;
+  project?: Project;
+}
+
+// Groups a project's finished goods. Part of the Product module, so it reuses
+// the product.* permissions rather than having its own.
+export interface ProductCategory {
+  id: number;
+  project_id: number;
+  name: string;
+  created_at: string;
+}
+
 export interface Product {
   id: number;
   project_id: number;
@@ -147,6 +174,10 @@ export interface Product {
   unit: string;
   average_cost: number;
   default_price: number;
+  // null means "Tanpa kategori", which is a legal state — not every product
+  // has to be filed under something.
+  category_id: number | null;
+  category?: ProductCategory;
   created_at: string;
 }
 
@@ -160,14 +191,14 @@ export interface ProductRecipeLine {
   item?: Item;
 }
 
+// One row per product per project: finished-goods stock is no longer broken
+// down by warehouse (see ProductStock on the Go side).
 export interface ProductStockRow {
   id: number;
   project_id: number;
-  warehouse_id: number;
   product_id: number;
   quantity: number;
   updated_at: string;
-  warehouse?: Warehouse;
 }
 
 export interface Customer {
@@ -197,7 +228,6 @@ export interface InvoiceRecord {
   project_id: number;
   invoice_number: string;
   customer_id: number;
-  warehouse_id: number;
   status: InvoiceStatus;
   subtotal: number;
   total_hpp: number;
@@ -205,7 +235,6 @@ export interface InvoiceRecord {
   performed_by: number;
   created_at: string;
   customer?: Customer;
-  warehouse?: Warehouse;
   items: InvoiceItemLine[];
 }
 

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Plus, PackagePlus, Trash2, Pencil, ListTree, UploadCloud } from 'lucide-react';
+import { Plus, PackagePlus, Trash2, Pencil, ListTree, UploadCloud, Boxes, Tags } from 'lucide-react';
 import { api, ApiError, buildQuery , type PaginatedResponse } from '../../lib/api';
 import { formatCurrency } from '../../lib/format';
-import type { Item, Product, ProductRecipeLine } from '../../types';
+import type { Item, Product, ProductCategory, ProductRecipeLine, ProductStockRow } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
 import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
@@ -22,9 +22,12 @@ interface ProductFormState {
   name: string;
   unit: string;
   default_price: string;
+  // Held as a string because that is what a <select> gives back; '' is the
+  // "Tanpa kategori" option, which the API accepts as 0.
+  category_id: string;
 }
 
-const emptyForm: ProductFormState = { sku: '', name: '', unit: '', default_price: '' };
+const emptyForm: ProductFormState = { sku: '', name: '', unit: '', default_price: '', category_id: '' };
 
 interface ProductPageProps {
   apiBasePrefix?: string;
@@ -72,6 +75,20 @@ const ProductPage = ({
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
+  const [stockProduct, setStockProduct] = useState<Product | null>(null);
+  const [stockRows, setStockRows] = useState<ProductStockRow[]>([]);
+  const [stockForm, setStockForm] = useState({ quantity: '', unit_cost: '' });
+  const [stockError, setStockError] = useState('');
+  const [stockSaving, setStockSaving] = useState(false);
+
+  const [categories, setCategories] = useState<ProductCategory[]>([]);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [categoryName, setCategoryName] = useState('');
+  const [editingCategory, setEditingCategory] = useState<ProductCategory | null>(null);
+  const [categoryError, setCategoryError] = useState('');
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [confirmDeleteCategory, setConfirmDeleteCategory] = useState<ProductCategory | null>(null);
+
   const [recipeProduct, setRecipeProduct] = useState<Product | null>(null);
   const [recipe, setRecipe] = useState<ProductRecipeLine[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -81,7 +98,7 @@ const ProductPage = ({
   const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
   const listQuery = scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId }) : '';
   // Separate from listQuery on purpose: listQuery still scopes the auxiliary
-  // dropdown fetches (warehouses, items, customers) which must stay complete,
+  // dropdown fetches (items, customers) which must stay complete,
   // while only the main table asks for a page.
   const pagedQuery = buildQuery({
     ...(scopeMode === 'query' ? { project_id: selectedProjectId } : {}),
@@ -90,14 +107,23 @@ const ProductPage = ({
   });
 
 
-  // On its own, Produk is just a catalogue (SKU/nama/satuan/harga). The
-  // stock-bearing parts only mean something once their backing module is on:
-  // HPP is produced by Produksi or the stock import, both of which need
-  // Gudang; the BOM editor picks raw materials, which needs Item.
+  // On its own, Produk is just a catalogue (SKU/nama/satuan/harga). Stock and
+  // HPP no longer hang off another module: ProductStock is one balance per
+  // project now rather than one per warehouse, so both doors onto it are open
+  // wherever the person holds product.import.
+  //
+  // The BOM editor is the one part still gated — it picks raw materials, so it
+  // needs Item.
   const hasModule = (code: string) => !enabledModules || enabledModules.includes(code);
-  const showStockColumns = hasModule('warehouse');
-  const showImport = canImport && showStockColumns;
+  const showImport = canImport;
   const showRecipe = canManageRecipe && hasModule('item');
+  // Same capability as the Excel import — see the shared product.import
+  // permission on the member route — just one row at a time, which is what
+  // makes stock possible at all when Produksi is out of scope.
+  const showStockEntry = canImport;
+  // Categories reuse the product.* grants one for one, exactly as the member
+  // routes do, so there is no separate capability to check for.
+  const canManageCategory = canCreate || canUpdate || canDelete;
 
   const loadProducts = () => {
     if (selectedProjectId === 'all') {
@@ -116,8 +142,22 @@ const ProductPage = ({
       .finally(() => setLoading(false));
   };
 
+  // Unpaginated on purpose: this list fills a <select>, so a second page would
+  // silently hide categories from the person choosing one.
+  const loadCategories = () => {
+    if (selectedProjectId === 'all') {
+      setCategories([]);
+      return;
+    }
+    api
+      .get<{ data: ProductCategory[] }>(`${resourceBase}/product-categories${listQuery}`)
+      .then((res) => setCategories(res.data))
+      .catch(() => setCategories([]));
+  };
+
   useEffect(() => {
     loadProducts();
+    loadCategories();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProjectId, apiBasePrefix, scopeMode, page]);
 
@@ -134,6 +174,7 @@ const ProductPage = ({
       name: product.name,
       unit: product.unit,
       default_price: product.default_price ? String(product.default_price) : '',
+      category_id: product.category_id ? String(product.category_id) : '',
     });
     setFormOpen(true);
   };
@@ -142,7 +183,13 @@ const ProductPage = ({
     setSaving(true);
     setErrorMsg('');
     try {
-      const payload = { ...form, default_price: form.default_price ? Number(form.default_price) : 0 };
+      const payload = {
+        ...form,
+        default_price: form.default_price ? Number(form.default_price) : 0,
+        // 0 rather than null: the API reads both as "Tanpa kategori", and 0
+        // survives the round trip through the empty <select> option.
+        category_id: form.category_id ? Number(form.category_id) : 0,
+      };
       if (editing) {
         await api.put(`${resourceBase}/products/${editing.id}`, payload);
       } else {
@@ -157,6 +204,45 @@ const ProductPage = ({
     }
   };
 
+  const handleSaveCategory = async () => {
+    const name = categoryName.trim();
+    if (!name) return;
+    setCategorySaving(true);
+    setCategoryError('');
+    try {
+      if (editingCategory) {
+        await api.put(`${resourceBase}/product-categories/${editingCategory.id}`, { name });
+      } else {
+        await api.post(`${resourceBase}/product-categories`, { name, project_id: Number(selectedProjectId) });
+      }
+      setCategoryName('');
+      setEditingCategory(null);
+      loadCategories();
+      // A rename shows up in the product table's KATEGORI column, which is
+      // served by the preloaded association rather than by `categories`.
+      loadProducts();
+    } catch (err) {
+      setCategoryError(err instanceof ApiError ? err.message : 'Gagal menyimpan kategori');
+    } finally {
+      setCategorySaving(false);
+    }
+  };
+
+  const handleDeleteCategory = async () => {
+    if (!confirmDeleteCategory) return;
+    setCategoryError('');
+    try {
+      await api.delete(`${resourceBase}/product-categories/${confirmDeleteCategory.id}`);
+      setConfirmDeleteCategory(null);
+      loadCategories();
+    } catch (err) {
+      // The 409 from a category still in use is the useful case here, and its
+      // message already says what to do about it.
+      setCategoryError(err instanceof ApiError ? err.message : 'Gagal menghapus kategori');
+      setConfirmDeleteCategory(null);
+    }
+  };
+
   const handleDelete = async () => {
     if (!confirmDelete) return;
     try {
@@ -166,6 +252,40 @@ const ProductPage = ({
     } catch (err) {
       setErrorMsg(err instanceof ApiError ? err.message : 'Gagal menghapus produk');
       setConfirmDelete(null);
+    }
+  };
+
+  const loadStock = (productId: number) => {
+    api
+      .get<{ data: ProductStockRow[] }>(`${resourceBase}/products/${productId}/stock`)
+      .then((res) => setStockRows(res.data))
+      .catch(() => setStockRows([]));
+  };
+
+  const openStockModal = (product: Product) => {
+    setStockProduct(product);
+    setStockForm({ quantity: '', unit_cost: '' });
+    setStockError('');
+    loadStock(product.id);
+  };
+
+  const handleAdjustStock = async () => {
+    if (!stockProduct || !stockForm.quantity) return;
+    setStockSaving(true);
+    setStockError('');
+    try {
+      await api.post(`${resourceBase}/products/${stockProduct.id}/stock`, {
+        quantity: Number(stockForm.quantity),
+        unit_cost: stockForm.unit_cost ? Number(stockForm.unit_cost) : 0,
+      });
+      setStockForm({ ...stockForm, quantity: '', unit_cost: '' });
+      loadStock(stockProduct.id);
+      // A costed addition moves Product.AverageCost, which the table shows.
+      loadProducts();
+    } catch (err) {
+      setStockError(err instanceof ApiError ? err.message : 'Gagal menyimpan stok produk');
+    } finally {
+      setStockSaving(false);
     }
   };
 
@@ -231,6 +351,21 @@ const ProductPage = ({
                 Import Stok
               </button>
             )}
+            {canManageCategory && (
+              <button
+                className="btn-secondary"
+                onClick={() => {
+                  setCategoryName('');
+                  setEditingCategory(null);
+                  setCategoryError('');
+                  setCategoryOpen(true);
+                }}
+                disabled={selectedProjectId === 'all'}
+              >
+                <Tags size={18} />
+                Kategori
+              </button>
+            )}
             {canCreate && (
               <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
                 <Plus size={18} />
@@ -270,8 +405,9 @@ const ProductPage = ({
               <tr>
                 <th>SKU</th>
                 <th>NAMA PRODUK</th>
+                <th>KATEGORI</th>
                 <th>SATUAN</th>
-                {showStockColumns && <th>HPP/UNIT</th>}
+                <th>HPP/UNIT</th>
                 <th>HARGA JUAL</th>
                 <th>DIBUAT</th>
                 <th></th>
@@ -283,12 +419,11 @@ const ProductPage = ({
                   <tr key={product.id}>
                     <td style={{ color: 'var(--text-muted)' }}>{product.sku}</td>
                     <td>{product.name}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{product.category?.name ?? '-'}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{product.unit}</td>
-                    {showStockColumns && (
-                      <td style={{ color: 'var(--text-muted)' }}>
-                        {product.average_cost ? formatCurrency(product.average_cost) : '-'}
-                      </td>
-                    )}
+                    <td style={{ color: 'var(--text-muted)' }}>
+                      {product.average_cost ? formatCurrency(product.average_cost) : '-'}
+                    </td>
                     <td style={{ color: 'var(--text-muted)' }}>
                       {product.default_price ? formatCurrency(product.default_price) : '-'}
                     </td>
@@ -296,6 +431,15 @@ const ProductPage = ({
                       {new Date(product.created_at).toLocaleDateString('id-ID')}
                     </td>
                     <td style={{ textAlign: 'right', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      {showStockEntry && (
+                        <button
+                          style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}
+                          onClick={() => openStockModal(product)}
+                          title="Atur Stok"
+                        >
+                          <Boxes size={16} />
+                        </button>
+                      )}
                       {showRecipe && (
                         <button
                           style={{ background: 'transparent', border: 'none', color: 'var(--primary)', cursor: 'pointer' }}
@@ -357,6 +501,21 @@ const ProductPage = ({
           <input className="form-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </div>
         <div className="form-group">
+          <label>Kategori (opsional)</label>
+          <select
+            className="form-select"
+            value={form.category_id}
+            onChange={(e) => setForm({ ...form, category_id: e.target.value })}
+          >
+            <option value="">Tanpa kategori</option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="form-group">
           <label>Satuan</label>
           <input
             className="form-input"
@@ -377,6 +536,196 @@ const ProductPage = ({
             onChange={(e) => setForm({ ...form, default_price: e.target.value })}
           />
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={categoryOpen}
+        onClose={() => setCategoryOpen(false)}
+        title="Kategori Produk"
+        footer={
+          <button className="btn-secondary" onClick={() => setCategoryOpen(false)}>
+            Tutup
+          </button>
+        }
+      >
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+          Kategori dipakai untuk mengelompokkan produk, termasuk di API eksternal. Kategori yang masih dipakai
+          produk tidak bisa dihapus.
+        </p>
+
+        {categoryError && (
+          <div style={{ color: 'var(--danger)', marginBottom: '12px', fontSize: '13px' }}>{categoryError}</div>
+        )}
+
+        {categories.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Belum ada kategori.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+            {categories.map((cat) => (
+              <div
+                key={cat.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 12px',
+                  background: 'var(--bg-color)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 8,
+                }}
+              >
+                <span style={{ fontSize: 13 }}>{cat.name}</span>
+                <span style={{ display: 'flex', gap: 8 }}>
+                  {canUpdate && (
+                    <button
+                      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                      title="Ubah nama"
+                      onClick={() => {
+                        setEditingCategory(cat);
+                        setCategoryName(cat.name);
+                        setCategoryError('');
+                      }}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button
+                      style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
+                      title="Hapus"
+                      onClick={() => setConfirmDeleteCategory(cat)}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {(canCreate || (canUpdate && editingCategory)) && (
+          <>
+            <div className="form-group">
+              <label>{editingCategory ? `Ubah nama "${editingCategory.name}"` : 'Kategori baru'}</label>
+              <input
+                className="form-input"
+                placeholder="mis. Kopi, Merchandise"
+                value={categoryName}
+                onChange={(e) => setCategoryName(e.target.value)}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="btn-primary"
+                onClick={handleSaveCategory}
+                disabled={categorySaving || !categoryName.trim()}
+              >
+                {categorySaving ? 'Menyimpan...' : editingCategory ? 'Simpan Perubahan' : 'Tambah Kategori'}
+              </button>
+              {editingCategory && (
+                <button
+                  className="btn-secondary"
+                  onClick={() => {
+                    setEditingCategory(null);
+                    setCategoryName('');
+                  }}
+                >
+                  Batal
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={!!confirmDeleteCategory}
+        title="Hapus Kategori"
+        message={`Hapus kategori "${confirmDeleteCategory?.name}"?`}
+        confirmLabel="Hapus"
+        onCancel={() => setConfirmDeleteCategory(null)}
+        onConfirm={handleDeleteCategory}
+      />
+
+      <Modal
+        isOpen={!!stockProduct}
+        onClose={() => setStockProduct(null)}
+        title={`Atur Stok — ${stockProduct?.name ?? ''}`}
+        footer={
+          <button className="btn-secondary" onClick={() => setStockProduct(null)}>
+            Tutup
+          </button>
+        }
+      >
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+          Stok awal atau koreksi, tanpa lewat Produksi. Qty positif menambah, qty minus mengurangi. HPP per unit
+          hanya dipakai saat menambah — nilainya ikut menghitung rata-rata tertimbang HPP produk ini.
+        </p>
+
+        {stockError && (
+          <div style={{ color: 'var(--danger)', marginBottom: '12px', fontSize: '13px' }}>{stockError}</div>
+        )}
+
+        {/* A single balance, not a list: ProductStock is one row per product
+            per project now that warehouses are out of the finished-goods
+            path, so there is nothing left to break it down by. */}
+        {stockRows.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Belum ada stok tercatat.</p>
+        ) : (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '8px 12px',
+              marginBottom: 16,
+              background: 'var(--bg-color)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 8,
+            }}
+          >
+            <span style={{ fontSize: 13 }}>Stok saat ini</span>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+              {stockRows[0].quantity} {stockProduct?.unit ?? ''}
+            </span>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div className="form-group" style={{ flex: 1 }}>
+            <label>Qty</label>
+            <input
+              type="number"
+              step="any"
+              className="form-input"
+              placeholder="mis. 20 atau -5"
+              value={stockForm.quantity}
+              onChange={(e) => setStockForm({ ...stockForm, quantity: e.target.value })}
+            />
+          </div>
+          <div className="form-group" style={{ flex: 1 }}>
+            <label>HPP / unit (opsional)</label>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              className="form-input"
+              placeholder="Kosongkan untuk koreksi jumlah saja"
+              value={stockForm.unit_cost}
+              onChange={(e) => setStockForm({ ...stockForm, unit_cost: e.target.value })}
+              disabled={Number(stockForm.quantity) < 0}
+            />
+          </div>
+        </div>
+
+        <button
+          className="btn-primary"
+          onClick={handleAdjustStock}
+          disabled={stockSaving || !stockForm.quantity}
+        >
+          {stockSaving ? 'Menyimpan...' : 'Simpan Stok'}
+        </button>
       </Modal>
 
       <Modal
@@ -474,7 +823,7 @@ const ProductPage = ({
           title="Import Stok Produk"
           endpoint={`${resourceBase}/imports/products/stock`}
           projectId={scopeMode === 'query' ? selectedProjectId : undefined}
-          templateHint="Kolom: SKU | Gudang (kode) | Qty | HPP per Unit (opsional). SKU dan Gudang harus sudah terdaftar di project ini. HPP per unit boleh dikosongkan kalau hanya ingin koreksi jumlah stok."
+          templateHint="Kolom: SKU | Qty | HPP per Unit (opsional). SKU harus sudah terdaftar di project ini. HPP per unit boleh dikosongkan kalau hanya ingin koreksi jumlah stok."
           onSuccess={loadProducts}
         />
       )}

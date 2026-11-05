@@ -21,6 +21,9 @@ func main() {
 	}
 
 	config.Load()
+	// After Load: it derives the API token signing key from JWTKey, and it
+	// stops the boot outright when API_KEY_ENC_KEY is missing.
+	config.LoadAPIKeyCipher()
 	database.Connect()
 
 	r := gin.Default()

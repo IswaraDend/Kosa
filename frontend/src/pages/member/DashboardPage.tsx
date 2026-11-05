@@ -3,6 +3,7 @@ import { Box, ArrowDownCircle, ArrowUpCircle, ArrowRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { api, ApiError } from '../../lib/api';
 import type { Project, TransactionRecord, TransactionReportRow, Warehouse } from '../../types';
+import { isActiveModule } from '../../lib/modules';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
 import { useMemberPermissions } from '../../hooks/useMemberPermissions';
@@ -23,9 +24,12 @@ const DashboardPage = () => {
   const [movement, setMovement] = useState<TransactionReportRow[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const canViewWarehouse = permissions.includes('warehouse.view');
-  const canViewTransaction = permissions.includes('transaction.view');
-  const canViewReport = permissions.includes('report.view');
+  // The grant alone is not enough: a member of a project created before the
+  // scope narrowed may still hold transaction.view or report.view, and those
+  // panels would then be the only place those features still surfaced.
+  const canViewWarehouse = isActiveModule('warehouse') && permissions.includes('warehouse.view');
+  const canViewTransaction = isActiveModule('transaction') && permissions.includes('transaction.view');
+  const canViewReport = isActiveModule('report') && permissions.includes('report.view');
   const hasAnyAccess = canViewWarehouse || canViewTransaction || canViewReport;
 
   useEffect(() => {

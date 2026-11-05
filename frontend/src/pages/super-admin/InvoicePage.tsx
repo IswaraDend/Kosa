@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Plus, Receipt, Trash2, Printer, Eye } from 'lucide-react';
 import { api, ApiError, buildQuery , type PaginatedResponse } from '../../lib/api';
 import { formatCurrency } from '../../lib/format';
-import type { Customer, InvoiceRecord, InvoiceStatus, Product, Warehouse } from '../../types';
+import type { Customer, InvoiceRecord, InvoiceStatus, Product } from '../../types';
 import { useSelectedProject } from '../../hooks/useSelectedProject';
 import { useProjectAutoSelect } from '../../hooks/useProjectAutoSelect';
 import { usePagination, metaFrom, PER_PAGE } from '../../hooks/usePagination';
@@ -25,12 +25,11 @@ interface DraftLine {
 
 interface InvoiceFormState {
   customer_id: string;
-  warehouse_id: string;
   note: string;
   lines: DraftLine[];
 }
 
-const emptyForm: InvoiceFormState = { customer_id: '', warehouse_id: '', note: '', lines: [] };
+const emptyForm: InvoiceFormState = { customer_id: '', note: '', lines: [] };
 const emptyDraft: DraftLine = { product_id: '', quantity: '', unit_price: '' };
 
 const statusLabel: Record<InvoiceStatus, string> = { unpaid: 'Belum Lunas', paid: 'Lunas', cancelled: 'Dibatalkan' };
@@ -60,7 +59,6 @@ const InvoicePage = ({
   const { page, setPage, meta, setMeta } = usePagination(selectedProjectId);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -76,7 +74,7 @@ const InvoicePage = ({
   const resourceBase = scopeMode === 'path' ? `${apiBasePrefix}/${selectedProjectId}` : apiBasePrefix;
   const listQuery = scopeMode === 'query' ? buildQuery({ project_id: selectedProjectId }) : '';
   // Separate from listQuery on purpose: listQuery still scopes the auxiliary
-  // dropdown fetches (warehouses, items, customers) which must stay complete,
+  // dropdown fetches (customers, products) which must stay complete,
   // while only the main table asks for a page.
   const pagedQuery = buildQuery({
     ...(scopeMode === 'query' ? { project_id: selectedProjectId } : {}),
@@ -110,7 +108,6 @@ const InvoicePage = ({
   useEffect(() => {
     if (selectedProjectId === 'all') {
       setCustomers([]);
-      setWarehouses([]);
       setProducts([]);
       return;
     }
@@ -118,10 +115,6 @@ const InvoicePage = ({
       .get<{ data: Customer[] }>(`${resourceBase}/customers${listQuery}`)
       .then((res) => setCustomers(res.data))
       .catch(() => setCustomers([]));
-    api
-      .get<{ data: Warehouse[] }>(`${resourceBase}/warehouses${listQuery}`)
-      .then((res) => setWarehouses(res.data))
-      .catch(() => setWarehouses([]));
     api
       .get<{ data: Product[] }>(`${resourceBase}/products${listQuery}`)
       .then((res) => setProducts(res.data))
@@ -171,7 +164,6 @@ const InvoicePage = ({
       await api.post(`${resourceBase}/invoices`, {
         project_id: Number(selectedProjectId),
         customer_id: Number(form.customer_id),
-        warehouse_id: Number(form.warehouse_id),
         note: form.note,
         items: form.lines.map((l) => ({
           product_id: Number(l.product_id),
@@ -248,7 +240,6 @@ const InvoicePage = ({
               <tr>
                 <th>NO. INVOICE</th>
                 <th>CUSTOMER</th>
-                <th>GUDANG</th>
                 <th>SUBTOTAL</th>
                 <th>MARGIN</th>
                 <th>STATUS</th>
@@ -262,7 +253,6 @@ const InvoicePage = ({
                   <tr key={inv.id}>
                     <td>{inv.invoice_number}</td>
                     <td>{inv.customer?.name ?? '-'}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>{inv.warehouse?.name ?? '-'}</td>
                     <td>{formatCurrency(inv.subtotal)}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{formatCurrency(inv.subtotal - inv.total_hpp)}</td>
                     <td>
@@ -339,22 +329,6 @@ const InvoicePage = ({
                 {customers.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label>Gudang</label>
-              <select
-                className="form-select"
-                value={form.warehouse_id}
-                onChange={(e) => setForm({ ...form, warehouse_id: e.target.value })}
-              >
-                <option value="">Pilih gudang</option>
-                {warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
                   </option>
                 ))}
               </select>
@@ -476,7 +450,6 @@ const InvoicePage = ({
         {viewInvoice && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
             <div>Customer: {viewInvoice.customer?.name ?? '-'}</div>
-            <div>Gudang: {viewInvoice.warehouse?.name ?? '-'}</div>
             <div>Status: {statusLabel[viewInvoice.status]}</div>
             <div style={{ marginTop: 8, borderTop: '1px solid var(--border-color)', paddingTop: 8 }}>
               {viewInvoice.items.map((line) => (
