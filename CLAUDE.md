@@ -202,7 +202,17 @@ atau entri manual → `ProductStock` (per project) → `Invoice`.
 ## API eksternal (`/api/v1`)
 
 Grup rute tersendiri di `routes/routes.go`, sama sekali tidak lewat
-`AuthMiddleware`. Alurnya dua langkah:
+`AuthMiddleware`.
+
+Di produksi ia punya hostname sendiri, `api.kosa.co.id`, yang hanya melayani
+`/v1` dan memetakannya ke `/api/v1` di dalam — vhost nginx di host, bukan di
+repo ini. `app.kosa.co.id/api/v1` tetap berlaku. Karena prefiks luar dan
+dalam berbeda, **pesan error di `middleware/api_key.go` tidak boleh menyebut
+path absolut**: proses Go selalu melihat `/api/v1`, sementara pemanggilnya
+mungkin datang lewat `/v1`, dan menyebut path absolut akan mengarahkan mereka
+ke URL yang 404 di host mereka sendiri.
+
+Alurnya dua langkah:
 
 1. `POST /api/v1/token` dengan header `X-API-Key: kosa_sk_...` (atau
    `Authorization: Bearer kosa_sk_...`) → `{access_token, token_type,

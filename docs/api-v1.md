@@ -11,17 +11,31 @@ atau menyentuh invoice.
 ## Base URL
 
 ```
-https://<host-kosa>
+https://api.kosa.co.id/v1
 ```
 
-Simpan base URL sebagai variabel konfigurasi, jangan di-hardcode — host
-produksinya bisa berubah.
+Simpan base URL sebagai satu variabel konfigurasi, jangan ditanam di tiap
+pemanggilan — host produksinya bisa berubah, dan seluruh dokumen ini menulis
+path relatif terhadapnya.
 
-Di deployment, base URL ini dilayani proses tersendiri dari dashboard Kosa,
-sehingga API bisa di-restart tanpa memutus dashboard dan sebaliknya. Dari sisi
-pemanggil tidak ada yang berbeda.
+Alamat lama tetap hidup dan menunjuk ke API yang sama persis:
 
-Untuk pengembangan lokal: `http://localhost:8080`.
+| Base URL | Prefiks | Status |
+|---|---|---|
+| `https://api.kosa.co.id/v1` | `/v1/...` | Dianjurkan |
+| `https://app.kosa.co.id/api/v1` | `/api/v1/...` | Tetap berlaku |
+
+**Perhatikan prefiksnya berbeda.** Di `app.kosa.co.id` awalan `/api` perlu,
+karena host itu dipakai bersama dashboard. Di host yang sudah bernama `api`,
+menulisnya lagi jadi pengulangan — dan `api.kosa.co.id/api/v1/...` menjawab
+404, bukan diteruskan diam-diam.
+
+Hostname `api.kosa.co.id` hanya melayani `/v1`. Dashboard, `/api/login`, dan
+seluruh rute member tidak ada di sana, dan di belakangnya pun API ini
+dilayani proses tersendiri dari dashboard — jadi API bisa di-restart tanpa
+memutus dashboard dan sebaliknya.
+
+Untuk pengembangan lokal: `http://localhost:8080/api/v1`.
 
 ---
 
@@ -48,19 +62,19 @@ rotasi bisa dilakukan tanpa membuat integrasi Anda mati dulu.
 Secret key **tidak** dipakai langsung di endpoint data. Tukar dulu jadi access
 token berumur pendek.
 
-### 1. `POST /api/v1/token`
+### 1. `POST /v1/token`
 
 Kirim secret key di header.
 
 ```bash
-curl -X POST https://<host-kosa>/api/v1/token \
+curl -X POST https://api.kosa.co.id/v1/token \
   -H "X-API-Key: kosa_sk_xxxxxxxxxxxxxxxxxxxx"
 ```
 
 Alternatif, kalau klien Anda lebih mudah memakai Bearer:
 
 ```bash
-curl -X POST https://<host-kosa>/api/v1/token \
+curl -X POST https://api.kosa.co.id/v1/token \
   -H "Authorization: Bearer kosa_sk_xxxxxxxxxxxxxxxxxxxx"
 ```
 
@@ -81,7 +95,7 @@ kadaluarsa, lalu tukar lagi. Jangan menukar token di setiap request.
 ### 2. Panggil endpoint data
 
 ```bash
-curl https://<host-kosa>/api/v1/products \
+curl https://api.kosa.co.id/v1/products \
   -H "Authorization: Bearer <access_token>"
 ```
 
@@ -99,7 +113,7 @@ yang sama:
 `total` adalah jumlah baris yang cocok, bukan jumlah baris di `data`.
 Permintaan tanpa kedua parameter itu dijawab utuh tanpa paginasi.
 
-### `GET /api/v1/products`
+### `GET /v1/products`
 
 Daftar produk project pemilik kunci.
 
@@ -135,13 +149,13 @@ Daftar produk project pemilik kunci.
 Harga pokok (HPP), rata-rata biaya, dan margin **tidak pernah** dikirim lewat
 API ini — itu posisi beli penjual, bukan urusan pembeli.
 
-### `GET /api/v1/products/:id`
+### `GET /v1/products/:id`
 
 Satu produk, bentuknya sama dengan satu elemen `data` di atas.
 
 Produk milik project lain dijawab `404`, bukan `403`.
 
-### `GET /api/v1/categories`
+### `GET /v1/categories`
 
 Daftar kategori produk, untuk membangun filter di sisi Anda tanpa harus
 menelusuri seluruh produk.
@@ -218,7 +232,7 @@ let cached = { token: null, expiresAt: 0 };
 async function getToken() {
   if (cached.token && Date.now() < cached.expiresAt - 60_000) return cached.token;
 
-  const res = await fetch(`${BASE}/api/v1/token`, {
+  const res = await fetch(`${BASE}/v1/token`, {
     method: 'POST',
     headers: { 'X-API-Key': KEY },
   });
@@ -231,10 +245,10 @@ async function getToken() {
 
 export async function listProducts({ category, page = 1 } = {}) {
   const token = await getToken();
-  const url = new URL(`${BASE}/api/v1/products`);
+  const url = new URL(`${BASE}/v1/products`);
   url.searchParams.set('page', page);
   url.searchParams.set('per_page', 50);
-  // Kode kategori, bukan id: lihat catatan di bagian /api/v1/categories.
+  // Kode kategori, bukan id: lihat catatan di bagian /v1/categories.
   if (category) url.searchParams.set('category', category);
 
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });

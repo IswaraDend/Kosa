@@ -62,7 +62,12 @@ func APITokenAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		auth := strings.TrimSpace(c.GetHeader("Authorization"))
 		if !strings.HasPrefix(auth, "Bearer ") {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Access token tidak ditemukan. Tukar secret key di POST /api/v1/token lebih dulu."})
+			// The path is named relative to the API base on purpose. This
+			// process always sees /api/v1, but the caller may have arrived at
+			// api.kosa.co.id/v1, where nginx rewrote the prefix — naming an
+			// absolute path here would send them to a URL that 404s on their
+			// own host.
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Access token tidak ditemukan di header Authorization. Tukar secret key jadi access token lebih dulu lewat POST ke endpoint /token pada base URL yang sama."})
 			c.Abort()
 			return
 		}
@@ -71,7 +76,7 @@ func APITokenAuth() gin.HandlerFunc {
 		if strings.HasPrefix(tokenString, APIKeyPlainPrefix) {
 			// A common first mistake, and worth naming precisely: the secret
 			// key itself is not an access token.
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Secret key tidak dipakai langsung di endpoint ini. Tukar dulu jadi access token di POST /api/v1/token."})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Secret key tidak dipakai langsung di endpoint ini. Tukar dulu jadi access token lewat POST ke endpoint /token pada base URL yang sama."})
 			c.Abort()
 			return
 		}
