@@ -1,6 +1,9 @@
 package routes
 
 import (
+	"log"
+	"os"
+	"strings"
 	"time"
 
 	"backend-go/config"
@@ -10,6 +13,22 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+)
+
+// SERVE_MODE values. A deployment may run this one binary twice: one process
+// behind the dashboard hostname and one behind the external API hostname. That
+// buys two things a single process cannot. A flood of third-party traffic
+// cannot starve the dashboard, and the externally reachable process has no
+// /login or /super-admin route registered at all — absence, not a middleware
+// standing in front of them.
+//
+// Empty means serve everything, which is what go run main.go gives a developer
+// and what the existing single-container deployment already relies on. Adding
+// this split must not change either of them.
+const (
+	serveModeBoth = ""
+	serveModeApp  = "app"
+	serveModeAPI  = "api"
 )
 
 func RegisterRoutes(r *gin.Engine) {
@@ -22,23 +41,51 @@ func RegisterRoutes(r *gin.Engine) {
 		MaxAge:           12 * time.Hour,
 	}))
 
+	// Served in every mode: this is the container healthcheck, and a process
+	// that cannot be probed looks dead to Docker no matter what else it serves.
 	r.GET("/ping", handlers.Ping)
-	r.POST("/login", handlers.Login)
 
-	// Public read-only price list. No auth by design — it is meant to be read
-	// by a storefront. Only projects that switched PublicPrices on are served,
-	// and the CORS allow-list still decides which browser origins may call it,
-	// so add the storefront's origin to CORS_ORIGINS.
-	r.GET("/public/projects/:code/prices", handlers.PublicPriceList)
+	mode := serveMode()
+	if mode != serveModeApp {
+		registerExternalAPI(r)
+	}
+	if mode != serveModeAPI {
+		registerDashboard(r)
+	}
+}
 
-	// Token exchange plus the read-only external API. Its own group on
-	// purpose: it never passes through AuthMiddleware, and no dashboard group
-	// accepts a token minted here — the two kinds of token are signed with
-	// different keys (see config.APITokenKey).
-	//
-	// CORS deliberately does not list X-API-Key as an allowed header. This is
-	// meant to be called server-to-server; a browser calling it directly would
-	// mean the secret key is sitting in someone else's JavaScript bundle.
+// serveMode reads SERVE_MODE and defaults to serving everything.
+//
+// Case is ignored, so SERVE_MODE=API is accepted. Anything genuinely
+// unrecognised stops the boot rather than falling back to both: a typo such as
+// SERVE_MODE=external treated as both would quietly serve /login and
+// /super-admin from the process meant to be reachable by third parties, with
+// nothing in the logs to say so.
+func serveMode() string {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("SERVE_MODE")))
+	switch mode {
+	case serveModeApp, serveModeAPI:
+		log.Println("SERVE_MODE:", mode)
+		return mode
+	case serveModeBoth:
+		return mode
+	default:
+		log.Fatalf("SERVE_MODE tidak dikenal: %q. Pakai app, api, atau biarkan kosong untuk keduanya.", mode)
+		return serveModeBoth
+	}
+}
+
+// registerExternalAPI mounts the third-party surface: the token exchange and
+// the read-only product endpoints.
+//
+// Its own group on purpose: it never passes through AuthMiddleware, and no
+// dashboard group accepts a token minted here — the two kinds of token are
+// signed with different keys (see config.APITokenKey).
+//
+// CORS deliberately does not list X-API-Key as an allowed header. This is
+// meant to be called server-to-server; a browser calling it directly would
+// mean the secret key is sitting in someone else's JavaScript bundle.
+func registerExternalAPI(r *gin.Engine) {
 	apiV1 := r.Group("/api/v1")
 	{
 		apiV1.POST("/token", handlers.IssueAPIToken)
@@ -54,6 +101,23 @@ func RegisterRoutes(r *gin.Engine) {
 			apiV1Read.GET("/categories", handlers.APIListCategories)
 		}
 	}
+}
+
+// registerDashboard mounts everything the three dashboards need: login plus
+// the super-admin, admin and member trees.
+//
+// The public price list stays here rather than moving to the external API,
+// even though a storefront is also a third party, because it is already
+// published at <dashboard-host>/api/public/projects/:code/prices and moving it
+// would break every storefront calling it today.
+func registerDashboard(r *gin.Engine) {
+	r.POST("/login", handlers.Login)
+
+	// Public read-only price list. No auth by design — it is meant to be read
+	// by a storefront. Only projects that switched PublicPrices on are served,
+	// and the CORS allow-list still decides which browser origins may call it,
+	// so add the storefront's origin to CORS_ORIGINS.
+	r.GET("/public/projects/:code/prices", handlers.PublicPriceList)
 
 	superAdmin := r.Group("/super-admin")
 	superAdmin.Use(middleware.AuthMiddleware(), middleware.RequireSuperAdmin())

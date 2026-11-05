@@ -17,6 +17,10 @@ https://<host-kosa>
 Simpan base URL sebagai variabel konfigurasi, jangan di-hardcode — host
 produksinya bisa berubah.
 
+Di deployment, base URL ini dilayani proses tersendiri dari dashboard Kosa,
+sehingga API bisa di-restart tanpa memutus dashboard dan sebaliknya. Dari sisi
+pemanggil tidak ada yang berbeda.
+
 Untuk pengembangan lokal: `http://localhost:8080`.
 
 ---

@@ -31,6 +31,10 @@ Tabel dibuat otomatis lewat AutoMigrate, lalu di-seed. Konfigurasi via
 Kalau `JWT_SECRET` kosong, server memakai kunci acak per-boot dan memperingatkan —
 sesi akan hangus tiap restart, jadi selalu set di deployment.
 
+`SERVE_MODE` dan `RUN_MIGRATIONS` dibiarkan kosong untuk pengembangan lokal:
+satu proses melayani semua rute dan memigrasikan skemanya sendiri. Keduanya
+baru dipakai di deployment — lihat "API eksternal" di bawah.
+
 `API_KEY_ENC_KEY` (32 byte hex) **wajib**, dan kalau kosong server sengaja
 menolak boot — berbeda dari `JWT_SECRET`. Kunci acak aman untuk menandatangani
 token, tapi di sini artinya semua secret key project yang sudah tersimpan tidak
@@ -223,6 +227,43 @@ Yang perlu dijaga saat menambah endpoint di sini:
 - CORS sengaja **tidak** memasukkan `X-API-Key` ke `AllowHeaders`. API ini
   dirancang server-to-server; kalau dipanggil langsung dari browser, artinya
   secret key ada di dalam bundle JavaScript pihak lain.
+
+### Proses tersendiri
+
+Di deployment, `/api/v1` dilayani **instance kedua dari binary yang sama**,
+dijalankan dengan `SERVE_MODE=api`, sementara instance dashboard berjalan
+dengan `SERVE_MODE=app` dan tidak mendaftarkan `/api/v1` sama sekali.
+Pembagiannya ada di `RegisterRoutes`, yang memanggil `registerExternalAPI` dan
+`registerDashboard` secara terpisah. `SERVE_MODE` yang tidak dikenal
+menggagalkan boot alih-alih diam-diam melayani keduanya; kosong berarti
+keduanya, yang benar untuk `go run main.go` dan untuk deployment satu proses.
+
+Yang dibeli dengan itu: lonjakan trafik pihak ketiga tidak bisa menghabiskan
+goroutine dashboard, keduanya bisa di-restart sendiri-sendiri, dan proses yang
+terjangkau pihak luar tidak punya rute `/login` atau `/super-admin` untuk
+diserang — bukan dijaga middleware, memang tidak terdaftar.
+
+Tiga hal yang wajib dijaga karena pembagian itu:
+
+- **`JWT_SECRET` dan `API_KEY_ENC_KEY` wajib identik di kedua proses.**
+  `config.APITokenKey` adalah turunan HMAC dari `JWT_SECRET`, jadi nilai yang
+  berbeda membuat access token terbitan satu proses ditolak proses lain.
+  `docker-compose.yml` memakai YAML anchor (`x-backend-env`) supaya keduanya
+  membaca satu sumber, bukan dua salinan yang bisa menyimpang.
+- **Tepat satu proses yang memiliki skema.** `RUN_MIGRATIONS=false` mematikan
+  migrasi dan seeding di instance `api`, dan `depends_on: condition:
+  service_healthy` menahannya sampai instance `app` selesai — `/ping` baru
+  dijawab setelah `database.Connect()` kembali, jadi "healthy" di sana berarti
+  "skema sudah siap". Dua proses yang sama-sama meng-`ALTER TABLE` di boot yang
+  sama adalah balapan.
+- **`allowAPIRequest` menghitung per proses.** Batas 60 permintaan/menit per key
+  ada di map memori (`middleware/api_key.go`), jadi menambah replika instance
+  `api` menaikkan batas efektifnya tanpa ada yang mengubah angkanya. Scale out
+  berarti memindahkan penghitung itu ke Redis atau Postgres lebih dulu.
+
+`frontend/nginx.conf` mem-proxy `/api/v1/` ke service `api`, bukan `backend`.
+Mengarahkannya ke `backend` akan menjawab 404 untuk setiap panggilan pihak
+ketiga, karena proses itu memang tidak punya rutenya.
 
 Secret key disimpan dua kali dengan tujuan berbeda: `KeyHash` (SHA-256,
 dibandingkan constant-time) untuk verifikasi tiap request, dan `KeyCipher`

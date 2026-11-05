@@ -40,12 +40,45 @@ func Connect() {
 	DB = db
 	log.Println("Database PostgreSQL connected!")
 
+	if !migrationsEnabled() {
+		// A second instance of this binary (SERVE_MODE=api) shares this
+		// database with the instance that migrates it. Two processes running
+		// ALTER TABLE and seeding in the same boot is a race: sometimes both
+		// get through, sometimes one fails its boot, and sometimes it writes a
+		// second copy of the seed rows. Exactly one process owns the schema.
+		//
+		// It follows that such an instance must not begin serving before the
+		// owner has finished. What enforces that is the healthcheck gate in
+		// docker-compose.yml, not this function: the owner answers /ping only
+		// after Connect returns, so waiting for it to report healthy is the
+		// same as waiting for the migrations.
+		log.Println("RUN_MIGRATIONS=false: melewati migrasi dan seeding, skema diurus instance lain")
+		return
+	}
+
+	runMigrations()
+}
+
+// migrationsEnabled reports whether this process owns the schema.
+//
+// Default yes: a single-process deployment and a developer running
+// go run main.go both need the migrations to happen, so only an explicit
+// false opts out. The default has to be this way round — reversed, a fresh
+// database would quietly never get its tables.
+func migrationsEnabled() bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("RUN_MIGRATIONS")))
+	return raw != "false" && raw != "0" && raw != "no"
+}
+
+// runMigrations brings the schema up to date and seeds it. Only ever called
+// by the single instance that owns the schema.
+func runMigrations() {
 	// Both run before AutoMigrate on purpose — see the comments on them.
 	migrateDropWarehouseColumns()
 	migrateBackfillProductCategoryCode()
 
 	// Auto Migrate Table
-	err = DB.AutoMigrate(
+	err := DB.AutoMigrate(
 		&models.User{},
 		&models.Project{},
 		&models.Role{},

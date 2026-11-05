@@ -1,10 +1,46 @@
 # Kosa — satu tumpukan: Postgres + API Go + SPA di balik nginx.
 #
-# Hanya service `web` yang membuka port ke host. Postgres dan backend hanya
-# dapat dijangkau dari dalam jaringan compose, jadi API tidak bisa diakses
-# langsung dari internet dan database tidak terekspos sama sekali.
+# Hanya service `web` yang membuka port ke host. Postgres dan kedua instance
+# backend hanya dapat dijangkau dari dalam jaringan compose, jadi API tidak
+# bisa diakses langsung dari internet dan database tidak terekspos sama sekali.
 #
 # Salin .env.example menjadi .env lalu isi nilainya sebelum `docker compose up`.
+
+# Env yang dipakai bersama oleh kedua instance backend. Ditulis sebagai anchor,
+# bukan disalin dua kali, karena beberapa nilai di sini WAJIB identik di kedua
+# proses dan salinan yang menyimpang akan gagal secara halus:
+#
+#   JWT_SECRET      — config.APITokenKey adalah turunan HMAC dari nilai ini.
+#                     Kalau kedua proses memegang JWT_SECRET berbeda, access
+#                     token yang diterbitkan `api` ditolak oleh `api` sendiri
+#                     setelah restart bergilir, dan token dashboard dari
+#                     `backend` mati setiap kali trafik mendarat di proses lain.
+#   API_KEY_ENC_KEY — kunci yang berbeda membuat secret key yang sudah
+#                     tersimpan tidak bisa didekripsi lagi.
+x-backend-env: &backend-env
+  # sslmode=disable aman di sini: lalu lintas tidak pernah keluar dari
+  # jaringan bridge Docker. Ganti menjadi require kalau suatu saat pindah
+  # ke Postgres terkelola di luar host ini.
+  DB_DSN: host=db user=${POSTGRES_USER:-kosa} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB:-kosa} port=5432 sslmode=disable TimeZone=UTC
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET wajib diisi di .env}
+  # Mengenkripsi secret key project supaya Super Admin bisa membacanya
+  # kembali. Backend menolak boot tanpa ini — sengaja, karena kunci yang
+  # berubah membuat setiap secret key yang sudah tersimpan tidak bisa
+  # didekripsi lagi. Isi sekali, lalu jangan pernah diganti.
+  API_KEY_ENC_KEY: ${API_KEY_ENC_KEY:?API_KEY_ENC_KEY wajib diisi di .env}
+  GIN_MODE: release
+  # Backend hanya dihubungi oleh nginx di jaringan bridge Docker.
+  TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
+  # Dashboard satu origin dengan API, jadi sebenarnya ia tidak butuh CORS
+  # untuk dirinya sendiri. Tapi browser mengirim header Origin pada setiap
+  # POST — termasuk yang satu origin — sehingga origin dashboard tetap
+  # wajib ada di allow-list, atau login sendiri dibalas 403 berbadan
+  # kosong. Backend menambahkan PUBLIC_ORIGIN ke daftar itu secara
+  # otomatis (lihat config.Load), jadi CORS_ORIGINS di bawah cukup diisi
+  # pihak luar saja: situs storefront yang membaca
+  # /public/projects/:code/prices dari browser pengunjungnya.
+  PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+  CORS_ORIGINS: ${CORS_ORIGINS:-}
 
 services:
   db:
@@ -26,6 +62,11 @@ services:
       retries: 10
       start_period: 10s
 
+  # Instance dashboard: /login, /super-admin, /admin, /member. SERVE_MODE=app
+  # membuatnya tidak mendaftarkan /api/v1 sama sekali.
+  #
+  # Inilah satu-satunya proses yang memiliki skema: ia menjalankan migrasi dan
+  # seeding, dan ia baru menjawab /ping setelah selesai.
   backend:
     build: ./backend-go
     restart: unless-stopped
@@ -35,32 +76,41 @@ services:
         # Postgres benar-benar siap menerima koneksi — bukan sekadar hidup.
         condition: service_healthy
     environment:
-      # sslmode=disable aman di sini: lalu lintas tidak pernah keluar dari
-      # jaringan bridge Docker. Ganti menjadi require kalau suatu saat pindah
-      # ke Postgres terkelola di luar host ini.
-      DB_DSN: host=db user=${POSTGRES_USER:-kosa} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB:-kosa} port=5432 sslmode=disable TimeZone=UTC
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET wajib diisi di .env}
-      # Mengenkripsi secret key project supaya Super Admin bisa membacanya
-      # kembali. Backend menolak boot tanpa ini — sengaja, karena kunci yang
-      # berubah membuat setiap secret key yang sudah tersimpan tidak bisa
-      # didekripsi lagi. Isi sekali, lalu jangan pernah diganti.
-      API_KEY_ENC_KEY: ${API_KEY_ENC_KEY:?API_KEY_ENC_KEY wajib diisi di .env}
-      GIN_MODE: release
+      <<: *backend-env
+      SERVE_MODE: app
       # Hanya dipakai saat tabel users masih kosong, untuk akun login pertama.
+      # Tidak ada di service `api` karena ia tidak pernah menyeed.
       SEED_SUPERADMIN_EMAIL: ${SEED_SUPERADMIN_EMAIL:?SEED_SUPERADMIN_EMAIL wajib diisi di .env}
       SEED_SUPERADMIN_PASSWORD: ${SEED_SUPERADMIN_PASSWORD:?SEED_SUPERADMIN_PASSWORD wajib diisi di .env}
-      # Backend hanya dihubungi oleh nginx di jaringan bridge Docker.
-      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
-      # Dashboard satu origin dengan API, jadi sebenarnya ia tidak butuh CORS
-      # untuk dirinya sendiri. Tapi browser mengirim header Origin pada setiap
-      # POST — termasuk yang satu origin — sehingga origin dashboard tetap
-      # wajib ada di allow-list, atau login sendiri dibalas 403 berbadan
-      # kosong. Backend menambahkan PUBLIC_ORIGIN ke daftar itu secara
-      # otomatis (lihat config.Load), jadi CORS_ORIGINS di bawah cukup diisi
-      # pihak luar saja: situs storefront yang membaca
-      # /public/projects/:code/prices dari browser pengunjungnya.
-      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
-      CORS_ORIGINS: ${CORS_ORIGINS:-}
+
+  # Instance API eksternal: hanya /api/v1 (tukar token + baca produk).
+  # Binary-nya sama persis — `build` menunjuk direktori yang sama, jadi Docker
+  # memakai ulang layer yang sudah ada dan tidak ada build kedua.
+  #
+  # Yang dibeli dengan proses terpisah: lonjakan trafik pihak ketiga tidak bisa
+  # menghabiskan goroutine dashboard, keduanya bisa di-restart sendiri-sendiri,
+  # dan proses yang terjangkau pihak luar ini tidak punya rute /login maupun
+  # /super-admin untuk diserang — bukan dijaga middleware, memang tidak
+  # terdaftar.
+  api:
+    build: ./backend-go
+    restart: unless-stopped
+    depends_on:
+      backend:
+        # service_healthy, bukan service_started. Instance ini tidak
+        # menjalankan migrasi (RUN_MIGRATIONS=false), jadi ia harus menunggu
+        # instance yang menjalankannya benar-benar selesai. `backend` baru
+        # menjawab /ping setelah database.Connect() kembali, sehingga "healthy"
+        # di sini berarti "skema sudah siap" — bukan sekadar "proses hidup".
+        condition: service_healthy
+    environment:
+      <<: *backend-env
+      SERVE_MODE: api
+      # Tepat satu proses yang boleh memiliki skema. Dua proses yang
+      # sama-sama meng-ALTER TABLE dan menyeed di boot yang sama adalah
+      # balapan: kadang keduanya lolos, kadang salah satunya gagal boot,
+      # kadang baris seed tertulis dua kali.
+      RUN_MIGRATIONS: 'false'
 
   web:
     build:
@@ -72,6 +122,7 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+      - api
     ports:
       # Alamat bind ditentukan lewat PUBLIC_PORT di .env, bukan dipatok di
       # sini, karena kedua bentuknya sama-sama sah tergantung deployment.
