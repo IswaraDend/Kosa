@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"backend-go/database"
@@ -21,7 +22,10 @@ import (
 // Same reasoning as PublicPriceRow in public_handler.go, which this follows.
 
 type APIProductCategory struct {
-	ID   uint   `json:"id"`
+	ID uint `json:"id"`
+	// The handle to filter by. Prefer it over ID in a caller's own code: it
+	// survives a rename and says what it means when someone reads the URL.
+	Code string `json:"code"`
 	Name string `json:"name"`
 }
 
@@ -47,7 +51,7 @@ func toAPIProduct(p models.Product) APIProduct {
 		UpdatedAt:    p.UpdatedAt,
 	}
 	if p.Category != nil {
-		out.Category = &APIProductCategory{ID: p.Category.ID, Name: p.Category.Name}
+		out.Category = &APIProductCategory{ID: p.Category.ID, Code: p.Category.Code, Name: p.Category.Name}
 	}
 	return out
 }
@@ -66,6 +70,19 @@ func APIListProducts(c *gin.Context) {
 		Where("project_id = ?", projectID)
 	if categoryID := queryUintPtr(c, "category_id"); categoryID != nil {
 		query = query.Where("category_id = ?", *categoryID)
+	}
+	// ?category= takes the code rather than the id, which is the filter a
+	// landing page actually wants to write. An unknown code returns an empty
+	// list, not a 404: "no products in that category" is a perfectly ordinary
+	// answer, and a 404 here would make a caller handle a missing category as
+	// an error when it only has to render nothing.
+	if code := strings.TrimSpace(c.Query("category")); code != "" {
+		category, err := getProductCategoryByCode(code, projectID)
+		if err != nil {
+			c.JSON(http.StatusOK, listResponse([]APIProduct{}, 0, page))
+			return
+		}
+		query = query.Where("category_id = ?", category.ID)
 	}
 	if term := searchTerm(c); term != "" {
 		query = query.Where("LOWER(name) LIKE ? OR LOWER(sku) LIKE ?", term, term)
@@ -120,7 +137,7 @@ func APIListCategories(c *gin.Context) {
 
 	rows := make([]APIProductCategory, 0, len(categories))
 	for _, cat := range categories {
-		rows = append(rows, APIProductCategory{ID: cat.ID, Name: cat.Name})
+		rows = append(rows, APIProductCategory{ID: cat.ID, Code: cat.Code, Name: cat.Name})
 	}
 
 	c.JSON(http.StatusOK, listResponse(rows, total, page))

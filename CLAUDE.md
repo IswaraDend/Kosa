@@ -165,6 +165,17 @@ mengizinkan mengelola kategori tapi tidak produk tidak berarti apa-apa.
 yang masih harus diisi. Kategori yang masih dipakai produk tidak bisa dihapus
 (409), bukan di-null-kan diam-diam.
 
+Kategori punya `Code` selain `Name`, keduanya unik per project. `Code` adalah
+pegangan yang dipakai pihak luar (`/api/v1/products?category=MIN`) dan sengaja
+disimpan huruf besar lewat `normalizeCategoryCode` — indeks uniknya peka huruf
+besar/kecil, jadi tanpa normalisasi "min" dan "MIN" bisa hidup berdampingan dan
+berarti dua hal berbeda. Pencarian dari luar tetap tidak peka huruf besar/kecil.
+
+**Satu modul boleh menyumbang lebih dari satu menu.** `groupByLayer` menerima
+`NavLeaf | NavLeaf[]`, dan `product` memakai itu untuk menaruh Kategori di
+samping Produk dalam satu band Manomaya. Halamannya ada di ketiga dashboard
+dengan pola induk/pembungkus yang sama seperti halaman lain.
+
 ## Invarian domain
 
 Dua alur stok terpisah: `Item` (bahan baku) lewat `Transaction` in/out/transfer →

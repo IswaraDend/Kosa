@@ -12,6 +12,7 @@ import UsersPage from './pages/super-admin/UsersPage';
 import GudangPage from './pages/super-admin/GudangPage';
 import ItemPage from './pages/super-admin/ItemPage';
 import ProductPage from './pages/super-admin/ProductPage';
+import KategoriPage from './pages/super-admin/KategoriPage';
 import ProduksiPage from './pages/super-admin/ProduksiPage';
 import CustomerPage from './pages/super-admin/CustomerPage';
 import InvoicePage from './pages/super-admin/InvoicePage';
@@ -26,6 +27,7 @@ import AdminApiKeyPage from './pages/admin/ApiKeyPage';
 import AdminGudangPage from './pages/admin/GudangPage';
 import AdminItemPage from './pages/admin/ItemPage';
 import AdminProductPage from './pages/admin/ProductPage';
+import AdminKategoriPage from './pages/admin/KategoriPage';
 import AdminProduksiPage from './pages/admin/ProduksiPage';
 import AdminCustomerPage from './pages/admin/CustomerPage';
 import AdminInvoicePage from './pages/admin/InvoicePage';
@@ -35,6 +37,7 @@ import MemberDashboardPage from './pages/member/DashboardPage';
 import MemberGudangPage from './pages/member/GudangPage';
 import MemberItemPage from './pages/member/ItemPage';
 import MemberProductPage from './pages/member/ProductPage';
+import MemberKategoriPage from './pages/member/KategoriPage';
 import MemberProduksiPage from './pages/member/ProduksiPage';
 import MemberCustomerPage from './pages/member/CustomerPage';
 import MemberInvoicePage from './pages/member/InvoicePage';
@@ -85,6 +88,7 @@ function App() {
             {ifActive('warehouse', <Route path="gudang" element={<GudangPage />} />)}
             {ifActive('item', <Route path="item" element={<ItemPage />} />)}
             <Route path="produk" element={<ProductPage />} />
+            <Route path="kategori" element={<KategoriPage />} />
             {ifActive('production', <Route path="produksi" element={<ProduksiPage />} />)}
             <Route path="pelanggan" element={<CustomerPage />} />
             <Route path="invoice" element={<InvoicePage />} />
@@ -111,6 +115,7 @@ function App() {
             {ifActive('warehouse', <Route path="gudang" element={<AdminGudangPage />} />)}
             {ifActive('item', <Route path="item" element={<AdminItemPage />} />)}
             <Route path="produk" element={<AdminProductPage />} />
+            <Route path="kategori" element={<AdminKategoriPage />} />
             {ifActive('production', <Route path="produksi" element={<AdminProduksiPage />} />)}
             <Route path="pelanggan" element={<AdminCustomerPage />} />
             <Route path="invoice" element={<AdminInvoicePage />} />
@@ -133,6 +138,7 @@ function App() {
           {ifActive('warehouse', <Route path="gudang" element={<MemberGudangPage />} />)}
           {ifActive('item', <Route path="item" element={<MemberItemPage />} />)}
           <Route path="produk" element={<MemberProductPage />} />
+          <Route path="kategori" element={<MemberKategoriPage />} />
           {ifActive('production', <Route path="produksi" element={<MemberProduksiPage />} />)}
           {ifActive('transaction', <Route path="transaksi" element={<MemberTransaksiPage />} />)}
           <Route path="pelanggan" element={<MemberCustomerPage />} />

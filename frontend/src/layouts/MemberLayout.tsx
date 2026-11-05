@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Box, Package, PackagePlus, Factory, BarChart2, Contact, Receipt, FileText, LogOut } from 'lucide-react';
+import { LayoutDashboard, Box, Package, PackagePlus, Factory, BarChart2, Contact, Receipt, FileText, LogOut, Tags } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useMemberPermissions } from '../hooks/useMemberPermissions';
 import { useProjectModules } from '../hooks/useProjectModules';
@@ -10,15 +10,21 @@ import './MemberLayout.css';
 // A member sees a module's menu entry only when the project has that module
 // enabled AND they hold its .view permission — the same pair the backend
 // requires on every member route.
-const MEMBER_MODULE_NAV: Record<ModuleCode, NavLeaf & { permission: string }> = {
-  warehouse: { path: '/member/gudang', label: 'Gudang', icon: <Box size={17} />, permission: 'warehouse.view' },
-  item: { path: '/member/item', label: 'Item', icon: <Package size={17} />, permission: 'item.view' },
-  product: { path: '/member/produk', label: 'Produk', icon: <PackagePlus size={17} />, permission: 'product.view' },
-  production: { path: '/member/produksi', label: 'Produksi', icon: <Factory size={17} />, permission: 'production.view' },
-  transaction: { path: '/member/transaksi', label: 'Transaksi', icon: <BarChart2 size={17} />, permission: 'transaction.view' },
-  customer: { path: '/member/pelanggan', label: 'Pelanggan', icon: <Contact size={17} />, permission: 'customer.view' },
-  invoice: { path: '/member/invoice', label: 'Invoice', icon: <Receipt size={17} />, permission: 'invoice.view' },
-  report: { path: '/member/laporan', label: 'Laporan', icon: <FileText size={17} />, permission: 'report.view' },
+// One module may contribute several entries — Produk brings Kategori with it.
+// Each carries its own permission, so a member who may see products but was
+// never granted anything else still gets exactly what they are allowed.
+const MEMBER_MODULE_NAV: Record<ModuleCode, (NavLeaf & { permission: string })[]> = {
+  warehouse: [{ path: '/member/gudang', label: 'Gudang', icon: <Box size={17} />, permission: 'warehouse.view' }],
+  item: [{ path: '/member/item', label: 'Item', icon: <Package size={17} />, permission: 'item.view' }],
+  product: [
+    { path: '/member/produk', label: 'Produk', icon: <PackagePlus size={17} />, permission: 'product.view' },
+    { path: '/member/kategori', label: 'Kategori', icon: <Tags size={17} />, permission: 'product.view' },
+  ],
+  production: [{ path: '/member/produksi', label: 'Produksi', icon: <Factory size={17} />, permission: 'production.view' }],
+  transaction: [{ path: '/member/transaksi', label: 'Transaksi', icon: <BarChart2 size={17} />, permission: 'transaction.view' }],
+  customer: [{ path: '/member/pelanggan', label: 'Pelanggan', icon: <Contact size={17} />, permission: 'customer.view' }],
+  invoice: [{ path: '/member/invoice', label: 'Invoice', icon: <Receipt size={17} />, permission: 'invoice.view' }],
+  report: [{ path: '/member/laporan', label: 'Laporan', icon: <FileText size={17} />, permission: 'report.view' }],
 };
 
 const MemberLayout = () => {
@@ -33,10 +39,10 @@ const MemberLayout = () => {
     navigate('/login');
   };
 
-  const grantedNav: Partial<Record<ModuleCode, NavLeaf>> = {};
+  const grantedNav: Partial<Record<ModuleCode, NavLeaf[]>> = {};
   (Object.keys(MEMBER_MODULE_NAV) as ModuleCode[]).forEach((code) => {
-    const entry = MEMBER_MODULE_NAV[code];
-    if (memberPermissions.includes(entry.permission)) grantedNav[code] = entry;
+    const entries = MEMBER_MODULE_NAV[code].filter((entry) => memberPermissions.includes(entry.permission));
+    if (entries.length > 0) grantedNav[code] = entries;
   });
 
   const blocks: SidebarBlock[] = [

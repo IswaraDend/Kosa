@@ -102,7 +102,8 @@ Daftar produk project pemilik kunci.
 | Query | Arti |
 |---|---|
 | `page`, `per_page` | Paginasi |
-| `category_id` | Hanya produk di satu kategori |
+| `category` | Hanya produk di satu kategori, pakai **kode** kategori — mis. `?category=MIN`. Tidak membedakan huruf besar/kecil. Kode yang tidak dikenal menjawab daftar kosong, bukan 404 |
+| `category_id` | Sama, tapi memakai id angka. `category` lebih disarankan: kode tetap sama walau nama kategorinya diubah |
 | `q` | Cari di nama atau SKU (case-insensitive) |
 
 ```json
@@ -114,7 +115,7 @@ Daftar produk project pemilik kunci.
       "name": "Kopi 200gr",
       "unit": "gr",
       "default_price": 20000,
-      "category": { "id": 4, "name": "Minuman" },
+      "category": { "id": 4, "code": "MIN", "name": "Minuman" },
       "updated_at": "2026-11-04T15:22:10.5+07:00"
     }
   ],
@@ -142,8 +143,12 @@ Daftar kategori produk, untuk membangun filter di sisi Anda tanpa harus
 menelusuri seluruh produk.
 
 ```json
-{ "data": [{ "id": 4, "name": "Minuman" }], "total": 1, "page": 1, "per_page": 25, "total_pages": 1 }
+{ "data": [{ "id": 4, "code": "MIN", "name": "Minuman" }], "total": 1, "page": 1, "per_page": 25, "total_pages": 1 }
 ```
+
+`code` adalah yang sebaiknya Anda simpan di sisi Anda. Ia tidak berubah ketika
+pemilik project mengganti nama kategorinya, sementara `name` bisa berubah
+kapan saja dan `id` tidak berarti apa-apa saat dibaca orang.
 
 ---
 
@@ -220,12 +225,13 @@ async function getToken() {
   return cached.token;
 }
 
-export async function listProducts({ categoryId, page = 1 } = {}) {
+export async function listProducts({ category, page = 1 } = {}) {
   const token = await getToken();
   const url = new URL(`${BASE}/api/v1/products`);
   url.searchParams.set('page', page);
   url.searchParams.set('per_page', 50);
-  if (categoryId) url.searchParams.set('category_id', categoryId);
+  // Kode kategori, bukan id: lihat catatan di bagian /api/v1/categories.
+  if (category) url.searchParams.set('category', category);
 
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (res.status === 429) throw new Error('Kena rate limit, coba lagi nanti');

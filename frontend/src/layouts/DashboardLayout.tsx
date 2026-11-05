@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, Box, Package, PackagePlus, Factory, Lock, BarChart2, FileText, Folder, LogOut, Contact, Receipt, KeyRound } from 'lucide-react';
+import { LayoutDashboard, Users, Box, Package, PackagePlus, Factory, Lock, BarChart2, FileText, Folder, LogOut, Contact, Receipt, KeyRound, Tags } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useProjectModules } from '../hooks/useProjectModules';
 import { LAYERS, groupByLayer, isActiveModule, type ModuleCode, type NavLeaf, type SidebarBlock } from '../lib/modules';
@@ -19,6 +19,7 @@ const SUPER_ADMIN_NAV: (NavLeaf & { module?: ModuleCode })[] = [
   { path: '/super-admin/gudang', label: 'Gudang', icon: <Box size={18} />, module: 'warehouse' },
   { path: '/super-admin/item', label: 'Item', icon: <Package size={18} />, module: 'item' },
   { path: '/super-admin/produk', label: 'Produk', icon: <PackagePlus size={18} />, module: 'product' },
+  { path: '/super-admin/kategori', label: 'Kategori', icon: <Tags size={18} />, module: 'product' },
   { path: '/super-admin/produksi', label: 'Produksi', icon: <Factory size={18} />, module: 'production' },
   { path: '/super-admin/pelanggan', label: 'Pelanggan', icon: <Contact size={18} />, module: 'customer' },
   { path: '/super-admin/invoice', label: 'Invoice', icon: <Receipt size={18} />, module: 'invoice' },
@@ -30,10 +31,15 @@ const SUPER_ADMIN_NAV: (NavLeaf & { module?: ModuleCode })[] = [
 
 // path/label/icon for every module-bearing page, keyed by module code — reused
 // to build each role's grouped sidebar from lib/modules' LAYERS ordering.
-const ADMIN_MODULE_NAV: Record<ModuleCode, NavLeaf> = {
+const ADMIN_MODULE_NAV: Record<ModuleCode, NavLeaf | NavLeaf[]> = {
   warehouse: { path: '/admin/gudang', label: 'Gudang', icon: <Box size={18} /> },
   item: { path: '/admin/item', label: 'Item', icon: <Package size={18} /> },
-  product: { path: '/admin/produk', label: 'Produk', icon: <PackagePlus size={18} /> },
+  // Two entries under one module: Kategori belongs to Produk, not to a module
+  // of its own, so it sits beside it in the same band.
+  product: [
+    { path: '/admin/produk', label: 'Produk', icon: <PackagePlus size={18} /> },
+    { path: '/admin/kategori', label: 'Kategori', icon: <Tags size={18} /> },
+  ],
   production: { path: '/admin/produksi', label: 'Produksi', icon: <Factory size={18} /> },
   transaction: { path: '/admin/transaksi', label: 'Transaksi', icon: <BarChart2 size={18} /> },
   customer: { path: '/admin/pelanggan', label: 'Pelanggan', icon: <Contact size={18} /> },

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"backend-go/database"
 	"backend-go/models"
@@ -10,10 +11,18 @@ import (
 	"gorm.io/gorm"
 )
 
+// normalizeCategoryCode is applied on every write so the stored form is the
+// only form. Upper-casing matters because the unique index is case-sensitive:
+// without it "min" and "MIN" can both exist in one project and mean two
+// different things, which is exactly the confusion a code is meant to avoid.
+func normalizeCategoryCode(code string) string {
+	return strings.ToUpper(strings.TrimSpace(code))
+}
+
 func listProductCategoriesByProject(projectID uint, term string, page Pagination) ([]models.ProductCategory, int64, error) {
 	query := database.DB.Model(&models.ProductCategory{}).Where("project_id = ?", projectID)
 	if term != "" {
-		query = query.Where("LOWER(name) LIKE ?", term)
+		query = query.Where("LOWER(name) LIKE ? OR LOWER(code) LIKE ?", term, term)
 	}
 
 	categories := []models.ProductCategory{}
@@ -29,18 +38,36 @@ func getProductCategoryScoped(id, projectID uint) (models.ProductCategory, error
 	return category, err
 }
 
-func createProductCategoryCore(projectID uint, name string) (models.ProductCategory, error) {
-	category := models.ProductCategory{ProjectID: projectID, Name: name}
+// getProductCategoryByCode resolves the handle outside callers use. The
+// comparison is case-insensitive even though the stored value is upper-cased,
+// so a landing page sending ?category=min is not quietly told there are no
+// products.
+func getProductCategoryByCode(code string, projectID uint) (models.ProductCategory, error) {
+	var category models.ProductCategory
+	err := database.DB.
+		Where("project_id = ? AND UPPER(code) = ?", projectID, normalizeCategoryCode(code)).
+		First(&category).Error
+	return category, err
+}
+
+func createProductCategoryCore(projectID uint, name, code string) (models.ProductCategory, error) {
+	category := models.ProductCategory{
+		ProjectID: projectID,
+		Name:      strings.TrimSpace(name),
+		Code:      normalizeCategoryCode(code),
+	}
 	err := database.DB.Create(&category).Error
 	return category, err
 }
 
-func updateProductCategoryScoped(id, projectID uint, name string) (models.ProductCategory, error) {
+func updateProductCategoryScoped(id, projectID uint, name, code string) (models.ProductCategory, error) {
 	category, err := getProductCategoryScoped(id, projectID)
 	if err != nil {
 		return models.ProductCategory{}, err
 	}
-	category.Name = name
+
+	category.Name = strings.TrimSpace(name)
+	category.Code = normalizeCategoryCode(code)
 	if err := database.DB.Save(&category).Error; err != nil {
 		return models.ProductCategory{}, err
 	}
@@ -85,16 +112,19 @@ func resolveCategoryID(categoryID *uint, projectID uint) (*uint, error) {
 
 type ProductCategoryFields struct {
 	Name string `json:"name" binding:"required"`
+	// max=32 matches the column, so an over-long code is a 400 explaining
+	// itself rather than a database error about a value too long for type.
+	Code string `json:"code" binding:"required,max=32"`
 }
 
 type ProductCategoryRequest struct {
-	ProjectID uint   `json:"project_id" binding:"required"`
-	Name      string `json:"name" binding:"required"`
+	ProjectID uint `json:"project_id" binding:"required"`
+	ProductCategoryFields
 }
 
 // respondCategoryWrite maps the shared write errors once for all six handlers
 // below: a conflict keeps its own sentence, a missing row is a 404, and a
-// duplicate name is the only remaining realistic failure.
+// duplicate name or code is the only remaining realistic failure.
 func respondCategoryWrite(c *gin.Context, category models.ProductCategory, err error, created bool) {
 	if err != nil {
 		if ce, ok := err.(*conflictError); ok {
@@ -105,7 +135,7 @@ func respondCategoryWrite(c *gin.Context, category models.ProductCategory, err e
 			c.JSON(http.StatusNotFound, gin.H{"error": "Kategori tidak ditemukan"})
 			return
 		}
-		c.JSON(http.StatusConflict, gin.H{"error": "Gagal menyimpan kategori, nama mungkin sudah dipakai di project ini"})
+		c.JSON(http.StatusConflict, gin.H{"error": "Gagal menyimpan kategori, nama atau kode mungkin sudah dipakai di project ini"})
 		return
 	}
 
@@ -141,7 +171,7 @@ func ListProductCategories(c *gin.Context) {
 		query = query.Where("project_id = ?", *projectID)
 	}
 	if term := searchTerm(c); term != "" {
-		query = query.Where("LOWER(name) LIKE ?", term)
+		query = query.Where("LOWER(name) LIKE ? OR LOWER(code) LIKE ?", term, term)
 	}
 
 	categories := []models.ProductCategory{}
@@ -157,11 +187,11 @@ func ListProductCategories(c *gin.Context) {
 func CreateProductCategory(c *gin.Context) {
 	var req ProductCategoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "project_id dan name wajib diisi"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "project_id, name, dan code wajib diisi"})
 		return
 	}
 
-	category, err := createProductCategoryCore(req.ProjectID, req.Name)
+	category, err := createProductCategoryCore(req.ProjectID, req.Name, req.Code)
 	respondCategoryWrite(c, category, err, true)
 }
 
@@ -180,11 +210,11 @@ func UpdateProductCategory(c *gin.Context) {
 
 	var req ProductCategoryFields
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name wajib diisi"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name dan code wajib diisi"})
 		return
 	}
 
-	category, err := updateProductCategoryScoped(id, existing.ProjectID, req.Name)
+	category, err := updateProductCategoryScoped(id, existing.ProjectID, req.Name, req.Code)
 	respondCategoryWrite(c, category, err, false)
 }
 
@@ -221,11 +251,11 @@ func CreateProductCategoryForProject(c *gin.Context) {
 	projectID := c.MustGet("projectID").(uint)
 	var req ProductCategoryFields
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name wajib diisi"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name dan code wajib diisi"})
 		return
 	}
 
-	category, err := createProductCategoryCore(projectID, req.Name)
+	category, err := createProductCategoryCore(projectID, req.Name, req.Code)
 	respondCategoryWrite(c, category, err, true)
 }
 
@@ -239,11 +269,11 @@ func UpdateProductCategoryForProject(c *gin.Context) {
 
 	var req ProductCategoryFields
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name wajib diisi"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name dan code wajib diisi"})
 		return
 	}
 
-	category, err := updateProductCategoryScoped(id, projectID, req.Name)
+	category, err := updateProductCategoryScoped(id, projectID, req.Name, req.Code)
 	respondCategoryWrite(c, category, err, false)
 }
 

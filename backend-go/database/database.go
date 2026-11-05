@@ -40,8 +40,9 @@ func Connect() {
 	DB = db
 	log.Println("Database PostgreSQL connected!")
 
-	// Runs before AutoMigrate on purpose — see the comment on the function.
+	// Both run before AutoMigrate on purpose — see the comments on them.
 	migrateDropWarehouseColumns()
+	migrateBackfillProductCategoryCode()
 
 	// Auto Migrate Table
 	err = DB.AutoMigrate(
@@ -219,6 +220,72 @@ func columnExists(table, column string) bool {
 		return false
 	}
 	return n > 0
+}
+
+// tableExists keeps a migration from touching a table AutoMigrate has not
+// created yet, which is the normal state on a fresh database.
+func tableExists(table string) bool {
+	var n int64
+	err := DB.Raw(`
+		SELECT COUNT(*) FROM information_schema.tables
+		WHERE table_schema = current_schema() AND table_name = ?
+	`, table).Scan(&n).Error
+	if err != nil {
+		log.Println("WARNING: gagal memeriksa tabel", table, err)
+		return false
+	}
+	return n > 0
+}
+
+// migrateBackfillProductCategoryCode gives every existing category a code
+// before AutoMigrate puts a unique index on (project_id, code).
+//
+// Without this, a database that already holds categories gets the new column
+// filled with an empty string on every row, and the unique index then cannot be
+// created at all: AutoMigrate fails and the server refuses to boot. Adding it
+// here and filling it first means AutoMigrate only has to add the index to
+// data that already satisfies it.
+//
+// The code is derived from the name, upper-cased and stripped to letters and
+// digits, which usually produces something the owner would have typed anyway.
+// Only the rows that would still collide get the id appended, so one awkward
+// duplicate does not uglify every other code.
+func migrateBackfillProductCategoryCode() {
+	if !tableExists("product_categories") || columnExists("product_categories", "code") {
+		return
+	}
+
+	// Added bare, with no constraint: AutoMigrate adds the unique index right
+	// after, once the rows below can satisfy it.
+	if err := DB.Exec("ALTER TABLE product_categories ADD COLUMN code text").Error; err != nil {
+		log.Fatal("Migration failed: gagal menambah product_categories.code: ", err)
+	}
+
+	if err := DB.Exec(`
+		UPDATE product_categories
+		SET code = COALESCE(
+			NULLIF(UPPER(SUBSTRING(REGEXP_REPLACE(name, '[^a-zA-Z0-9]', '', 'g') FROM 1 FOR 16)), ''),
+			'KAT'
+		)
+	`).Error; err != nil {
+		log.Fatal("Migration failed: gagal mengisi product_categories.code: ", err)
+	}
+
+	// Two names can reduce to the same code ("Kopi Susu" and "Kopisusu"), and
+	// a name with no letters at all falls back to the shared 'KAT'.
+	if err := DB.Exec(`
+		UPDATE product_categories pc SET code = pc.code || '-' || pc.id
+		WHERE EXISTS (
+			SELECT 1 FROM product_categories other
+			WHERE other.project_id = pc.project_id
+			  AND other.code = pc.code
+			  AND other.id <> pc.id
+		)
+	`).Error; err != nil {
+		log.Fatal("Migration failed: gagal membuat kode kategori unik: ", err)
+	}
+
+	log.Println("Migrasi: kolom code ditambahkan ke product_categories dan diisi dari nama")
 }
 
 // migrateDropWarehouseColumns takes finished-goods stock and invoices off

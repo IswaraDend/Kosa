@@ -148,7 +148,17 @@ export interface NavLeaf {
 
 export type SidebarBlock = { kind: 'item'; item: NavLeaf } | { kind: 'group'; layerIdx: number; items: NavLeaf[] };
 
-export function groupByLayer(enabledModules: string[], nav: Partial<Record<ModuleCode, NavLeaf>>): SidebarBlock[] {
+/**
+ * Builds the Pañca Kośa sidebar bands.
+ *
+ * A module may contribute more than one menu entry — Produk brings Kategori
+ * with it — so a value here is either one leaf or several. They land next to
+ * each other inside their module's band, which is where a reader expects them.
+ */
+export function groupByLayer(
+  enabledModules: string[],
+  nav: Partial<Record<ModuleCode, NavLeaf | NavLeaf[]>>,
+): SidebarBlock[] {
   const blocks: SidebarBlock[] = [];
   LAYERS.forEach((layer, layerIdx) => {
     const items = layer.modules
@@ -158,8 +168,11 @@ export function groupByLayer(enabledModules: string[], nav: Partial<Record<Modul
       // Filtering here keeps both the Admin and the Member sidebar correct
       // whatever the database still says.
       .filter((m) => enabledModules.includes(m) && isActiveModule(m))
-      .map((m) => nav[m])
-      .filter((n): n is NavLeaf => !!n);
+      .flatMap((m) => {
+        const entry = nav[m];
+        if (!entry) return [];
+        return Array.isArray(entry) ? entry : [entry];
+      });
     if (items.length > 0) blocks.push({ kind: 'group', layerIdx, items });
   });
   return blocks;

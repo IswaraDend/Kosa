@@ -163,6 +163,8 @@ export interface ProductCategory {
   id: number;
   project_id: number;
   name: string;
+  /** Stable handle for outside callers: /api/v1/products?category=MIN. */
+  code: string;
   created_at: string;
 }
 

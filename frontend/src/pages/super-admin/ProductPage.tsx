@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, PackagePlus, Trash2, Pencil, ListTree, UploadCloud, Boxes, Tags } from 'lucide-react';
+import { Plus, PackagePlus, Trash2, Pencil, ListTree, UploadCloud, Boxes } from 'lucide-react';
 import { api, ApiError, buildQuery , type PaginatedResponse } from '../../lib/api';
 import { formatCurrency } from '../../lib/format';
 import type { Item, Product, ProductCategory, ProductRecipeLine, ProductStockRow } from '../../types';
@@ -82,12 +82,6 @@ const ProductPage = ({
   const [stockSaving, setStockSaving] = useState(false);
 
   const [categories, setCategories] = useState<ProductCategory[]>([]);
-  const [categoryOpen, setCategoryOpen] = useState(false);
-  const [categoryName, setCategoryName] = useState('');
-  const [editingCategory, setEditingCategory] = useState<ProductCategory | null>(null);
-  const [categoryError, setCategoryError] = useState('');
-  const [categorySaving, setCategorySaving] = useState(false);
-  const [confirmDeleteCategory, setConfirmDeleteCategory] = useState<ProductCategory | null>(null);
 
   const [recipeProduct, setRecipeProduct] = useState<Product | null>(null);
   const [recipe, setRecipe] = useState<ProductRecipeLine[]>([]);
@@ -121,9 +115,7 @@ const ProductPage = ({
   // permission on the member route — just one row at a time, which is what
   // makes stock possible at all when Produksi is out of scope.
   const showStockEntry = canImport;
-  // Categories reuse the product.* grants one for one, exactly as the member
-  // routes do, so there is no separate capability to check for.
-  const canManageCategory = canCreate || canUpdate || canDelete;
+
 
   const loadProducts = () => {
     if (selectedProjectId === 'all') {
@@ -201,45 +193,6 @@ const ProductPage = ({
       setErrorMsg(err instanceof ApiError ? err.message : 'Gagal menyimpan produk');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleSaveCategory = async () => {
-    const name = categoryName.trim();
-    if (!name) return;
-    setCategorySaving(true);
-    setCategoryError('');
-    try {
-      if (editingCategory) {
-        await api.put(`${resourceBase}/product-categories/${editingCategory.id}`, { name });
-      } else {
-        await api.post(`${resourceBase}/product-categories`, { name, project_id: Number(selectedProjectId) });
-      }
-      setCategoryName('');
-      setEditingCategory(null);
-      loadCategories();
-      // A rename shows up in the product table's KATEGORI column, which is
-      // served by the preloaded association rather than by `categories`.
-      loadProducts();
-    } catch (err) {
-      setCategoryError(err instanceof ApiError ? err.message : 'Gagal menyimpan kategori');
-    } finally {
-      setCategorySaving(false);
-    }
-  };
-
-  const handleDeleteCategory = async () => {
-    if (!confirmDeleteCategory) return;
-    setCategoryError('');
-    try {
-      await api.delete(`${resourceBase}/product-categories/${confirmDeleteCategory.id}`);
-      setConfirmDeleteCategory(null);
-      loadCategories();
-    } catch (err) {
-      // The 409 from a category still in use is the useful case here, and its
-      // message already says what to do about it.
-      setCategoryError(err instanceof ApiError ? err.message : 'Gagal menghapus kategori');
-      setConfirmDeleteCategory(null);
     }
   };
 
@@ -351,21 +304,7 @@ const ProductPage = ({
                 Import Stok
               </button>
             )}
-            {canManageCategory && (
-              <button
-                className="btn-secondary"
-                onClick={() => {
-                  setCategoryName('');
-                  setEditingCategory(null);
-                  setCategoryError('');
-                  setCategoryOpen(true);
-                }}
-                disabled={selectedProjectId === 'all'}
-              >
-                <Tags size={18} />
-                Kategori
-              </button>
-            )}
+
             {canCreate && (
               <button className="btn-primary" onClick={openCreateForm} disabled={selectedProjectId === 'all'}>
                 <Plus size={18} />
@@ -537,116 +476,6 @@ const ProductPage = ({
           />
         </div>
       </Modal>
-
-      <Modal
-        isOpen={categoryOpen}
-        onClose={() => setCategoryOpen(false)}
-        title="Kategori Produk"
-        footer={
-          <button className="btn-secondary" onClick={() => setCategoryOpen(false)}>
-            Tutup
-          </button>
-        }
-      >
-        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
-          Kategori dipakai untuk mengelompokkan produk, termasuk di API eksternal. Kategori yang masih dipakai
-          produk tidak bisa dihapus.
-        </p>
-
-        {categoryError && (
-          <div style={{ color: 'var(--danger)', marginBottom: '12px', fontSize: '13px' }}>{categoryError}</div>
-        )}
-
-        {categories.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Belum ada kategori.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            {categories.map((cat) => (
-              <div
-                key={cat.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '8px 12px',
-                  background: 'var(--bg-color)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 8,
-                }}
-              >
-                <span style={{ fontSize: 13 }}>{cat.name}</span>
-                <span style={{ display: 'flex', gap: 8 }}>
-                  {canUpdate && (
-                    <button
-                      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                      title="Ubah nama"
-                      onClick={() => {
-                        setEditingCategory(cat);
-                        setCategoryName(cat.name);
-                        setCategoryError('');
-                      }}
-                    >
-                      <Pencil size={15} />
-                    </button>
-                  )}
-                  {canDelete && (
-                    <button
-                      style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}
-                      title="Hapus"
-                      onClick={() => setConfirmDeleteCategory(cat)}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {(canCreate || (canUpdate && editingCategory)) && (
-          <>
-            <div className="form-group">
-              <label>{editingCategory ? `Ubah nama "${editingCategory.name}"` : 'Kategori baru'}</label>
-              <input
-                className="form-input"
-                placeholder="mis. Kopi, Merchandise"
-                value={categoryName}
-                onChange={(e) => setCategoryName(e.target.value)}
-              />
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                className="btn-primary"
-                onClick={handleSaveCategory}
-                disabled={categorySaving || !categoryName.trim()}
-              >
-                {categorySaving ? 'Menyimpan...' : editingCategory ? 'Simpan Perubahan' : 'Tambah Kategori'}
-              </button>
-              {editingCategory && (
-                <button
-                  className="btn-secondary"
-                  onClick={() => {
-                    setEditingCategory(null);
-                    setCategoryName('');
-                  }}
-                >
-                  Batal
-                </button>
-              )}
-            </div>
-          </>
-        )}
-      </Modal>
-
-      <ConfirmDialog
-        isOpen={!!confirmDeleteCategory}
-        title="Hapus Kategori"
-        message={`Hapus kategori "${confirmDeleteCategory?.name}"?`}
-        confirmLabel="Hapus"
-        onCancel={() => setConfirmDeleteCategory(null)}
-        onConfirm={handleDeleteCategory}
-      />
 
       <Modal
         isOpen={!!stockProduct}
