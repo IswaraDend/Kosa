@@ -1,0 +1,21 @@
+# Akhir baris ditentukan di sini, bukan oleh core.autocrlf masing-masing orang.
+#
+# Semua blob di repo ini sudah LF, jadi file ini tidak mengubah isi apa pun.
+# Yang diperbaiki adalah arah sebaliknya: core.autocrlf=true di checkout Windows
+# menulis CRLF ke working tree, dan gofmt menganggap file CRLF belum terformat —
+# sehingga `gofmt -l .`, perintah pemeriksaan yang diminta CLAUDE.md sendiri,
+# menyebut file yang sebenarnya tidak apa-apa. Berpindah branch sudah cukup
+# untuk memunculkannya kembali, jadi menormalkan file satu per satu bukan obat.
+#
+# text=auto tetap mendeteksi biner sendiri; eol=lf memaksa working tree ikut LF
+# di semua platform.
+* text=auto eol=lf
+
+# Satu-satunya aset biner di repo ini. Ditandai eksplisit supaya tidak
+# bergantung pada deteksi otomatis kalau nanti ada jenis lain.
+*.woff2 binary
+*.woff binary
+*.ttf binary
+*.png binary
+*.jpg binary
+*.xlsx binary
